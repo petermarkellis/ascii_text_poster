@@ -2,8 +2,9 @@
 
 A generative poster canvas built out of a grid of text cells. Halftone dot
 fields, drifting blocks of glyphs, letterforms that assemble and rot, typed
-messages spelled out in cells, and a photo screened onto the grid as a proper
-halftone — all in one self-contained HTML file with no build step.
+messages spelled out in cells, and a photo — or a clip, or your webcam —
+screened onto the grid as a proper halftone. All in one self-contained HTML
+file with no build step.
 
 Every composition has a seed, and the URL is a live description of what you are
 looking at, so anything you make can be kept or handed to someone else.
@@ -18,11 +19,13 @@ If you'd rather serve it:
 npm start        # npx live-server . --port=8080
 ```
 
-Serving is worth it for two reasons: the address bar updates cleanly via
+Serving is worth it for three reasons. The address bar updates cleanly via
 `history.replaceState` (opening off `file://` falls back to assigning
-`location.hash`, which leaves history entries behind), and the clipboard uses
-the modern async API rather than the `execCommand` fallback. Both paths work
-either way.
+`location.hash`, which leaves history entries behind); the clipboard uses the
+modern async API rather than the `execCommand` fallback; and **the camera needs
+a secure context**, which `localhost` counts as but a page opened straight off
+disk does not. The first two work either way — the camera is the one that
+genuinely requires it, and will tell you so on the button if refused.
 
 The only external request is the DotGothic16 webfont from Google Fonts, used
 for the control panel. The canvas itself deliberately stays on a monospace
@@ -30,10 +33,10 @@ stack — the grid depends on uniform glyph metrics to stay aligned.
 
 ## Using it
 
-**Drag on the canvas** to paint. **Drop an image anywhere** to screen it onto
-the grid. The panel collapses with the tab on its right edge — it isn't an
-overlay, it's a block of canvas cells that builds and clears with the same
-diagonal sweep everything else uses.
+**Drag on the canvas** to paint. **Drop an image or a video anywhere** to screen
+it onto the grid, or hit **Camera**. The panel collapses with the tab on its
+right edge — it isn't an overlay, it's a block of canvas cells that builds and
+clears with the same diagonal sweep everything else uses.
 
 ### Canvas
 
@@ -79,11 +82,27 @@ about three lines fit at the default cell size — smaller cells buy more.
 
 ### Buttons
 
-**Pause** · **Regenerate** (rolls a new seed) · **Load Image** / **Clear Image**
-· **Share Link** (copies the permalink).
+**Pause** · **Regenerate** (rolls a new seed) · **Load Media** / **Clear
+Source** · **Camera** / **Stop Camera** · **Share Link** (copies the permalink).
 
 Everything except Regenerate keeps the seed, so changing the palette or the cell
 size shows you the *same composition* differently.
+
+### Live sources
+
+A still is decoded once and re-screened whenever the grid changes. A clip or the
+camera is the same path re-read on every step — that is all "live" means here.
+It costs about **0.035 ms per step** against a 55.6 ms budget, because the
+sampling canvas is the size of the grid (a few dozen pixels), not the size of
+the frame.
+
+Pause freezes the feed along with everything else, which is what makes it
+possible to hold a frame you like and then paint on it. The camera view is
+mirrored, the way a selfie camera is; a dropped clip is not. Stopping the camera
+releases its tracks — the hardware light goes out.
+
+If the camera is refused, the button says why: `Camera Denied`, `No Camera`,
+`No Camera API` (not a secure context — see above), or `Camera Failed`.
 
 ## Sharing
 
@@ -101,8 +120,8 @@ follows. A parameter you delete resets its control rather than lingering.
 Parameters: `seed`, `palette`, `size`, `speed`, `density`, `scale`, `chroma`,
 `split`, `decay`, `trail`, `wipe`, `msgsplit`, `fmt`, `msg`.
 
-A dropped image is the one thing that can't ride along — it stays local to the
-tab.
+An image, a clip or the camera is the one thing that can't ride along — a source
+stays local to the tab.
 
 ## How it works
 
@@ -113,11 +132,18 @@ away and reveal what was underneath.
 
 **Halftones are real `<pattern>` fills**, serialised to data-URIs so each cell
 can carry its own dot colour and spacing while still tiling as one continuous
-field. A dropped photo maps luminance to dot radius across seven tone steps —
-which is exactly how a halftone renders tone out of a single ink — and is
-re-screened at the new resolution whenever the grid reshapes, so the dots stay
-one-per-cell at every size. On a dark palette the mapping inverts, or every
-picture would come out as its own negative.
+field. A source maps luminance to dot radius across seven tone steps — which is
+exactly how a halftone renders tone out of a single ink — and is re-screened at
+the new resolution whenever the grid reshapes, so the dots stay one-per-cell at
+every size. On a dark palette the mapping inverts, or every picture would come
+out as its own negative.
+
+**A camera is just an `<img>` that moves.** Canvas draws an image, a video and
+another canvas identically, so a live source needed no new rendering path at
+all — only re-reading the same one on each step. The two things that make it
+cheap enough to do 18 times a second are that the sampling canvas is held rather
+than allocated per call, and that the seven dot patterns are rebuilt only when
+the ink changes, which means once per palette rather than once per frame.
 
 **One mask contract.** A shape is `(lx, ly, w, h) => bool`, and `FONT` is a 5×7
 bitmap, so scaling one into the other is two divisions. That's why a letter

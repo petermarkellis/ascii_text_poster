@@ -552,10 +552,12 @@
 
     <button id="anim">Pause</button>
     <button id="regen">Regenerate</button>
-    <!-- The picture is screened onto the grid as a halftone. Dropping one
-         anywhere on the canvas does the same thing. -->
-    <button id="imgBtn">Load Image</button>
-    <input type="file" id="imgFile" accept="image/*" class="sr-only">
+    <!-- The picture is screened onto the grid as a halftone. Dropping an
+         image or a clip anywhere on the canvas does the same thing; the
+         camera is the same path, re-read on every step. -->
+    <button id="imgBtn">Load Media</button>
+    <input type="file" id="imgFile" accept="image/*,video/*" class="sr-only">
+    <button id="camBtn">Camera</button>
     <button id="share">Share Link</button>
   </div>
 
@@ -1233,28 +1235,62 @@
     const PHOTO_LEVELS = 7;   // tone steps, including bare ground and solid
     const PHOTO_TILE = 6;     // screen pitch in px; ~4 dots across a cell
 
-    let photoSrc = null;      // the decoded <img>, or null
+    // The source is an <img>, or a <video> when it is a camera or a clip —
+    // canvas draws all three the same way, so a moving picture costs
+    // nothing here beyond being re-read on every step.
+    let photoSrc = null;
+    let photoLive = false;    // re-sample per step rather than once
+    let photoMirror = false;  // a camera reads as a mirror, a file does not
     let photo = null;         // Uint8Array of luminance levels, 0 = black
-    let photoFills = [];      // one fill per level, built once per palette
+    let photoFills = [];      // one fill per level
+    let photoInk = null;      // which ink those fills were built for
+    // Held rather than made per call. At 18 steps a second, allocating a
+    // canvas per sample would be the whole cost of the feature.
+    let photoCv = null, photoCtx = null;
+
+    // A video reports its size through different properties, and reports
+    // zero until the first frame has arrived.
+    const srcW = (s) => s.videoWidth || s.naturalWidth || s.width || 0;
+    const srcH = (s) => s.videoHeight || s.naturalHeight || s.height || 0;
 
     function samplePhoto() {
-      if (!photoSrc || !cols || !rows) { photo = null; return; }
+      const src = photoSrc;
+      if (!src || !cols || !rows) { photo = null; return; }
 
-      const cv = document.createElement('canvas');
-      cv.width = cols;
-      cv.height = rows;
-      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      const sw0 = srcW(src), sh0 = srcH(src);
+      // A camera that hasn't delivered a frame yet. Leaving `photo` alone
+      // means the composition underneath simply stays until it does.
+      if (!sw0 || !sh0) return;
+
+      if (!photoCv) {
+        photoCv = document.createElement('canvas');
+        photoCtx = photoCv.getContext('2d', { willReadFrequently: true });
+      }
+      if (photoCv.width !== cols || photoCv.height !== rows) {
+        photoCv.width = cols;
+        photoCv.height = rows;
+      }
+      const ctx = photoCtx;
+      // Dropping a 720p frame straight to a few dozen pixels aliases hard,
+      // and on a live source that shows up as the halftone crawling. The
+      // browser's own filtering is what holds it still.
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
 
       // Cover, not stretch: crop the long axis so the picture keeps its
       // proportions however the window is shaped.
-      const sa = photoSrc.width / photoSrc.height, da = cols / rows;
-      let sw = photoSrc.width, sh = photoSrc.height, sx = 0, sy = 0;
-      if (sa > da) { sw = photoSrc.height * da; sx = (photoSrc.width - sw) / 2; }
-      else { sh = photoSrc.width / da; sy = (photoSrc.height - sh) / 2; }
-      ctx.drawImage(photoSrc, sx, sy, sw, sh, 0, 0, cols, rows);
+      const sa = sw0 / sh0, da = cols / rows;
+      let sw = sw0, sh = sh0, sx = 0, sy = 0;
+      if (sa > da) { sw = sh0 * da; sx = (sw0 - sw) / 2; }
+      else { sh = sw0 / da; sy = (sh0 - sh) / 2; }
+
+      ctx.save();
+      if (photoMirror) { ctx.translate(cols, 0); ctx.scale(-1, 1); }
+      ctx.drawImage(src, sx, sy, sw, sh, 0, 0, cols, rows);
+      ctx.restore();
 
       const d = ctx.getImageData(0, 0, cols, rows).data;
-      photo = new Uint8Array(cols * rows);
+      if (!photo || photo.length !== cols * rows) photo = new Uint8Array(cols * rows);
       for (let i = 0; i < photo.length; i++) {
         const o = i * 4;
         const l = (0.2126 * d[o] + 0.7152 * d[o + 1] + 0.0722 * d[o + 2]) / 255;
@@ -1263,8 +1299,12 @@
     }
 
     // Thousands of cells share seven patterns, so the data-URIs are built
-    // per level and reused rather than one per cell.
+    // per level and reused rather than one per cell — and only when the ink
+    // itself changes, which on a live source means once per palette rather
+    // than eighteen times a second.
     function buildPhotoFills(ink) {
+      if (photoInk === ink && photoFills.length) return;
+      photoInk = ink;
       photoFills = [];
       for (let l = 0; l < PHOTO_LEVELS; l++) {
         // Bare ground at one end, solid ink at the other; neither is dots.
@@ -2392,36 +2432,147 @@
     });
 
     /* ---------------------------------------------------------------
-       Loading a picture. Decoded once and kept; generate() re-screens it
-       whenever the grid changes. It arrives through the regenerate sweep
-       rather than a cut, so the halftone is laid down by the same
-       diagonal front everything else uses.
+       Sources. A still is decoded once and re-screened whenever the grid
+       changes; a clip or a camera is the same picture path re-read on
+       every step, which is all "live" means here. Each arrives through
+       the regenerate sweep rather than a cut, so the halftone is laid
+       down by the same diagonal front everything else uses.
     --------------------------------------------------------------- */
     const imgBtn = document.getElementById('imgBtn');
     const imgFile = document.getElementById('imgFile');
+    const camBtn = document.getElementById('camBtn');
+
+    let camStream = null;     // held so its tracks can be stopped again
 
     const syncImage = () => {
-      imgBtn.textContent = photoSrc ? 'Clear Image' : 'Load Image';
+      imgBtn.textContent = photoSrc && !camStream ? 'Clear Source' : 'Load Media';
+      camBtn.textContent = camStream ? 'Stop Camera' : 'Camera';
     };
 
-    function loadImageFile(file) {
-      if (!file || !file.type.startsWith('image/')) return;
+    // Drops every source, whichever kind, and releases the camera with it.
+    function clearSource() {
+      if (camStream) {
+        camStream.getTracks().forEach((t) => t.stop());
+        camStream = null;
+      }
+      if (photoSrc && photoSrc.srcObject) photoSrc.srcObject = null;
+      if (photoSrc && photoSrc.dataset && photoSrc.dataset.objectUrl) {
+        URL.revokeObjectURL(photoSrc.dataset.objectUrl);
+      }
+      photoSrc = null;
+      photo = null;
+      photoLive = false;
+      photoMirror = false;
+    }
+
+    function useSource(src, { live, mirror }) {
+      clearSourceKeepingStream();
+      photoSrc = src;
+      photoLive = live;
+      photoMirror = mirror;
+      startRegenerate();
+      syncImage();
+    }
+
+    // Swapping one source for another must not tear down a camera that is
+    // the source being installed.
+    function clearSourceKeepingStream() {
+      photo = null;
+      photoLive = false;
+      photoMirror = false;
+    }
+
+    function loadMediaFile(file) {
+      if (!file) return;
+      const isVideo = file.type.startsWith('video/');
+      if (!isVideo && !file.type.startsWith('image/')) return;
+
       const url = URL.createObjectURL(file);
+
+      if (isVideo) {
+        const v = document.createElement('video');
+        v.dataset.objectUrl = url;
+        v.muted = true;          // autoplay is refused otherwise
+        v.loop = true;
+        v.playsInline = true;
+        v.onloadeddata = () => {
+          clearSource();
+          v.play().catch(() => {});
+          useSource(v, { live: true, mirror: false });
+        };
+        v.onerror = () => URL.revokeObjectURL(url);
+        v.src = url;
+        return;
+      }
+
       const img = new Image();
       img.onload = () => {
         URL.revokeObjectURL(url);
-        photoSrc = img;
-        startRegenerate();
-        syncImage();
+        clearSource();
+        useSource(img, { live: false, mirror: false });
       };
       img.onerror = () => URL.revokeObjectURL(url);
       img.src = url;
     }
 
+    /* The camera is just a <video> that never ends. getUserMedia needs a
+       secure context, which localhost counts as but a page opened straight
+       off disk does not — hence `npm start` if this refuses. */
+    let camNotice;
+
+    async function startCamera() {
+      const fail = (msg) => {
+        camBtn.textContent = msg;
+        clearTimeout(camNotice);
+        camNotice = setTimeout(syncImage, 2200);
+      };
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        return fail('No Camera API');
+      }
+
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false
+        });
+      } catch (err) {
+        const name = err && err.name;
+        return fail(name === 'NotAllowedError' ? 'Camera Denied'
+                  : name === 'NotFoundError' ? 'No Camera'
+                  : 'Camera Failed');
+      }
+
+      clearSource();
+      camStream = stream;
+
+      const v = document.createElement('video');
+      v.srcObject = stream;
+      v.muted = true;
+      v.playsInline = true;
+
+      // Install first and start playing after, rather than awaiting play():
+      // sampling already tolerates a source that has no frame yet and
+      // re-reads every step, so there is nothing to wait for — and a play()
+      // that never settles would otherwise strand the camera silently.
+      useSource(v, { live: true, mirror: true });
+      v.play().catch(() => {});
+    }
+
+    camBtn.addEventListener('click', () => {
+      if (camStream) {
+        clearSource();
+        startRegenerate();
+        syncImage();
+      } else {
+        startCamera();
+      }
+    });
+
     imgBtn.addEventListener('click', () => {
-      if (photoSrc) {
-        photoSrc = null;
-        photo = null;
+      if (photoSrc && !camStream) {
+        clearSource();
         startRegenerate();
         syncImage();
       } else {
@@ -2430,7 +2581,7 @@
     });
 
     imgFile.addEventListener('change', () => {
-      loadImageFile(imgFile.files[0]);
+      loadMediaFile(imgFile.files[0]);
       imgFile.value = '';   // so the same file can be picked again
     });
 
@@ -2443,7 +2594,7 @@
     window.addEventListener('drop', (e) => {
       e.preventDefault();
       setDropping(false);
-      loadImageFile(e.dataTransfer.files[0]);
+      loadMediaFile(e.dataTransfer.files[0]);
     });
 
     syncImage();
@@ -2517,6 +2668,16 @@
           entities = entities.filter((e) => updateEntity(e, STEP));
           topUpEntities();
           stepped = true;
+        }
+
+        // A camera or a clip is re-screened on the artwork's own step
+        // rather than per frame: the grid only redraws at STEP anyway, so
+        // sampling faster would be work nobody sees. Pause freezes the
+        // feed with everything else, which is what makes it possible to
+        // hold a frame you like.
+        if (photoLive && stepped) {
+          samplePhoto();
+          if (photo) buildPhotoField();
         }
 
         // Hand expired painted cells back to the composition. Tied to the
