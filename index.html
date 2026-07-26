@@ -374,6 +374,23 @@
       display: block;
     }
 
+    /* ---- Glow ------------------------------------------------------
+       Set on the container rather than per cell, so switching it costs
+       one class change instead of a write to every element. In
+       currentColor, so a glyph blooms in its own ink rather than in one
+       fixed colour — which is what lets it work on any palette at all
+       and not only the neon one. The radius tracks the cell size, set
+       from script; a fixed px would swamp a small grid and vanish on a
+       large one. Only cells holding a glyph pay for it. */
+    .grid-container.glow .cell {
+      text-shadow: 0 0 var(--glow, 6px) currentColor;
+    }
+
+    /* Drawn frames are strokes, not text, so they need the filter form. */
+    .grid-container.glow .cell svg {
+      filter: drop-shadow(0 0 var(--glow, 6px) currentColor);
+    }
+
     /* Drag a picture anywhere over the canvas. Drawn as an inset frame so
        it reads as "the whole grid is the target" without covering it. */
     body.dropping::after {
@@ -412,6 +429,16 @@
         <option value="noir">Noir</option>
         <option value="blanc">Blanc</option>
         <option value="emerald">Emerald</option>
+      </select>
+    </div>
+
+    <!-- Auto follows the palette: only the neon scheme asks for it. -->
+    <div class="control-group">
+      <label for="glow">Glow</label>
+      <select id="glow">
+        <option value="auto">Auto</option>
+        <option value="on">On</option>
+        <option value="off">Off</option>
       </select>
     </div>
 
@@ -619,6 +646,7 @@
     const wipeInput = document.getElementById('wipe');
     const presetInput = document.getElementById('preset');
     const msgSplitInput = document.getElementById('msgSplit');
+    const glowInput = document.getElementById('glow');
     const screenInput = document.getElementById('screen');
     const motionInput = document.getElementById('motion');
 
@@ -750,17 +778,30 @@
         },
         inkOnDark: ['#00ff9c', '#5cffc9', '#c7ffe9', '#00d68f'],
         inkOnLight: ['#04120c', '#0b3b2c', '#08402e'],
-        paint: { bg: '#00ff9c', ink: '#04120c' }
+        paint: { bg: '#00ff9c', ink: '#04120c' },
+        // The only scheme that asks for a bloom by default. Saturated ink
+        // on a near-black ground is what neon *is*; the same treatment on
+        // the grey palettes just reads as a printing fault.
+        glow: true
       }
     };
 
     let C, INK_ON_DARK, INK_ON_LIGHT;
+    let paletteGlow = false;   // whether this scheme wants a bloom on Auto
+
+    // Auto defers to the palette; the other two override it either way.
+    const glowOn = () =>
+      glowInput.value === 'on' || (glowInput.value === 'auto' && paletteGlow);
+
+    const syncGlow = () => grid.classList.toggle('glow', glowOn());
 
     function applyPalette(name) {
       const p = PALETTES[name] || PALETTES.pop;
       C = p.colors;
       INK_ON_DARK = p.inkOnDark;
       INK_ON_LIGHT = p.inkOnLight;
+      paletteGlow = !!p.glow;
+      syncGlow();
       bgColorInput.value = p.paint.bg;
       textColorInput.value = p.paint.ink;
       document.body.style.backgroundColor = C.paper;
@@ -2290,6 +2331,11 @@
       panelCols = Math.max(1, Math.min(cols - 2, Math.round(PANEL_PX / cellW) + 1));
       syncPanelGeometry();
 
+      // Scaled off the cell, not fixed: 6px is a halo on a 16px cell and
+      // barely visible on a 56px one.
+      document.documentElement.style.setProperty(
+        '--glow', Math.max(3, Math.round(Math.min(cellW, cellH) * 0.22)) + 'px');
+
       const n = cols * rows;
       base = Array.from({ length: n }, blank);
       entities = [];
@@ -2373,7 +2419,8 @@
       palette: paletteInput, size: cellSizeInput, speed: speedInput,
       density: densityInput, scale: scaleInput, chroma: chromaInput,
       split: splitInput, decay: decayInput, trail: trailInput,
-      wipe: wipeInput, msgsplit: msgSplitInput, screen: screenInput,
+      wipe: wipeInput, msgsplit: msgSplitInput, glow: glowInput,
+      screen: screenInput,
       motion: motionInput, fmt: msgFormat, msg: msgText
     };
 
@@ -2506,6 +2553,10 @@
     // pass — so it only needs the frame drawn again.
     msgSplitInput.addEventListener('change', composite);
 
+    // Purely presentational — one class on the container, nothing to
+    // recompute and no frame to redraw.
+    glowInput.addEventListener('change', syncGlow);
+
     // A live source re-screens itself on the next step anyway; a still
     // needs telling.
     screenInput.addEventListener('change', () => {
@@ -2537,6 +2588,7 @@
       syncScale();
 
       if (changed('palette')) applyPalette(paletteInput.value);
+      syncGlow();   // depends on the palette as well as the control
 
       // Seed, palette and cell size are all baked into the base layer at
       // build time, so any of them means laying the poster again. The rest
@@ -3020,6 +3072,7 @@
     enhanceSelect(trailInput);
     enhanceSelect(wipeInput);
     enhanceSelect(msgSplitInput);
+    enhanceSelect(glowInput);
     enhanceSelect(screenInput);
     enhanceSelect(motionInput);
     enhanceSelect(msgFormat);

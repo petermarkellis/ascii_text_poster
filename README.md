@@ -44,6 +44,7 @@ clears with the same diagonal sweep everything else uses.
 |---|---|---|
 | **Preset** | Poster · Storm · Minimal · Aberration | Sets the seven sliders below at once. Drops back to Custom the moment you move one of them. |
 | **Palette** | Pop · Noir · Blanc · Emerald | Every ink is chosen against its own ground, so each scheme stays legible rather than relying on fixed pairs. |
+| **Glow** | Auto · On · Off | Blooms each glyph in its own ink. **Auto** follows the palette, and only Emerald asks for it — saturated ink on a near-black ground is what neon *is*, whereas the same treatment on the grey schemes reads as a printing fault. The radius tracks the cell size. |
 | **Size** | 16–56 | Target cell size in px. Reshapes the grid. |
 | **Speed** | 0–200 | Scales the artwork clock. Transitions ignore it — they're UI, not motion. |
 | **Density** | 0–20 | How many drifting groups stay alive. Lowering it lets the surplus die off naturally rather than culling mid-life. |
@@ -132,7 +133,8 @@ bar — swap the message, bump the seed, change the palette — and the canvas
 follows. A parameter you delete resets its control rather than lingering.
 
 Parameters: `seed`, `palette`, `size`, `speed`, `density`, `scale`, `chroma`,
-`split`, `decay`, `trail`, `wipe`, `msgsplit`, `screen`, `motion`, `fmt`, `msg`.
+`split`, `decay`, `trail`, `wipe`, `msgsplit`, `glow`, `screen`, `motion`, `fmt`,
+`msg`.
 
 An image, a clip or the camera is the one thing that can't ride along — a source
 stays local to the tab.
@@ -151,6 +153,12 @@ exactly how a halftone renders tone out of a single ink — and is re-screened a
 the new resolution whenever the grid reshapes, so the dots stay one-per-cell at
 every size. On a dark palette the mapping inverts, or every picture would come
 out as its own negative.
+
+**The glow is one class on the container**, not a property written to every
+cell, so switching it costs a single mutation rather than thousands. It draws in
+`currentColor`, which is what lets one rule serve every palette — a glyph blooms
+in whatever ink it already had — and only cells actually holding a glyph pay for
+it.
 
 **Edges reuse the glyphs that were already there.** `SEQUENCES[0]` is
 `['|', '/', '—', '\\']` — four directions, long since part of the vocabulary.
