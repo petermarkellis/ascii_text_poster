@@ -1,0 +1,9 @@
+{
+  "name": "ascii-studio",
+  "version": "1.0.0",
+  "description": "ASCII Animation Studio Prototype",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx live-server . --port=8080"
+  }
+}

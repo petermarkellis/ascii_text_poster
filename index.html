@@ -1,0 +1,2829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Halftone ASCII Canvas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: #0f0e17;
+      font-family: ui-monospace, 'SF Mono', Menlo, 'Courier New', monospace;
+    }
+
+    /* The panel has no ground of its own: the grid draws a block of flat
+       cells where it sits, and these controls sit on top of them. So the
+       panel genuinely occupies canvas space rather than floating over it,
+       and opening it is a cell animation rather than a slide. */
+    .panel {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 100vh;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 11px;
+      padding: 20px 16px;
+      overflow-y: auto;
+      background: transparent;
+      color: var(--panel-fg, #1c1c21);
+      /* Pixel face for the UI only. The canvas keeps its monospace stack:
+         the grid depends on uniform glyph metrics to stay aligned. */
+      font-family: 'DotGothic16', ui-monospace, Menlo, monospace;
+      /* Faded until the cells behind have finished building. */
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.5s ease;
+    }
+
+    .panel.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* Square scrollbar, tracking the panel theme via --scroll: a dark
+       grey on the light panels, a light one on Noir. */
+    .panel {
+      scrollbar-width: thin;                              /* Firefox */
+      scrollbar-color: var(--scroll, #55555f) transparent;
+    }
+
+    .panel::-webkit-scrollbar { width: 9px; }
+    .panel::-webkit-scrollbar-track { background: transparent; }
+
+    .panel::-webkit-scrollbar-thumb {
+      background: var(--scroll, #55555f);
+      border-radius: 0;
+    }
+
+    .panel h2 {
+      font-size: 12px;
+      font-weight: 400;   /* DotGothic16 ships a single weight */
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      opacity: 0.55;
+      margin-top: 6px;
+    }
+
+    .panel h2:first-child { margin-top: 0; }
+
+    .panel hr {
+      border: none;
+      border-top: 1px solid currentColor;
+      opacity: 0.2;
+      margin: 3px 0;
+    }
+
+    /* Rides the panel edge, so it is always the thing you reach for. */
+    .panel-toggle {
+      position: fixed;
+      top: 20px;
+      left: 208px;
+      z-index: 1001;
+      width: 24px;
+      height: 36px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      transition: left 0.25s ease;
+      background: var(--panel-bg, #2e2c40);
+      color: var(--panel-fg, #fff);
+      font-family: 'DotGothic16', ui-monospace, monospace;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: inherit;
+    }
+
+    .control-group label {
+      flex: 0 0 46px;
+    }
+
+    .control-group select,
+    .control-group input[type="range"] {
+      flex: 1;
+      min-width: 0;
+    }
+
+    input[type="color"] {
+      border: none;
+      width: 26px;
+      height: 22px;
+      cursor: pointer;
+      background: none;
+    }
+
+    input[type="text"] {
+      width: 36px;
+      text-align: center;
+      padding: 3px;
+      font-family: inherit;
+    }
+
+    select, button {
+      background: #2e2c40;
+      border: 1px solid #555;
+      color: #fff;
+      padding: 5px 8px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    /* ---- Neo-brutalist controls -----------------------------------
+       Square corners, heavy borders, and a hard unblurred offset
+       shadow. Everything is drawn in currentColor so the whole set
+       inverts with the panel theme instead of needing a second scheme. */
+    .panel input[type="text"],
+    .panel > button,
+    .panel input[type="color"],
+    .sel-btn,
+    .sel-list,
+    .msg-go,
+    .panel-toggle {
+      border: 2px solid currentColor;
+      border-radius: 0;
+      box-shadow: 3px 3px 0 currentColor;
+      font-family: inherit;
+    }
+
+    .panel input[type="text"],
+    .panel > button,
+    .sel-btn {
+      background: rgba(127, 127, 127, 0.14);
+      color: inherit;
+    }
+
+    .panel > button {
+      width: 100%;
+      padding: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    /* Press: ride down onto the shadow rather than fade. */
+    .panel > button:active,
+    .sel-btn:active,
+    .panel-toggle:active {
+      transform: translate(3px, 3px);
+      box-shadow: none;
+    }
+
+    /* ---- Custom select --------------------------------------------
+       A native select's popup can't be styled, so the real one is kept
+       for state and keyboard/form semantics while this stands in for
+       it visually. Changes are written back to it and re-dispatched as
+       a `change` event, so nothing downstream knows the difference. */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .sel {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .sel-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 5px 8px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .sel-caret { font-size: 8px; line-height: 1; }
+    .sel.open .sel-caret { transform: rotate(180deg); }
+
+    .sel-list {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      z-index: 20;
+      display: none;
+      background: var(--panel-bg, #fff);
+    }
+
+    .sel.open .sel-list { display: block; }
+
+    .sel-option {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 6px 8px;
+      border: none;
+      background: transparent;
+      color: inherit;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .sel-option + .sel-option { border-top: 2px solid currentColor; }
+    .sel-option.selected { background: rgba(127, 127, 127, 0.22); }
+
+    /* Message row: a wide field and a square arrow button. */
+    .panel #msgText {
+      flex: 1;
+      width: auto;
+      min-width: 0;
+      text-align: left;
+      padding: 5px 8px;
+    }
+
+    .msg-go {
+      flex: 0 0 30px;
+      height: 28px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(127, 127, 127, 0.14);
+      color: inherit;
+      cursor: pointer;
+    }
+
+    .msg-go svg { width: 17px; height: 17px; display: block; }
+
+    .msg-go:hover {
+      background: var(--accent, #ff007f);
+      border-color: var(--accent, #ff007f);
+      color: var(--accent-ink, #fff);
+    }
+
+    .msg-go:active { transform: translate(3px, 3px); box-shadow: none; }
+
+    .panel > button:hover,
+    .sel-btn:hover,
+    .panel-toggle:hover {
+      background: var(--accent, #ff007f);
+      border-color: var(--accent, #ff007f);
+      color: var(--accent-ink, #fff);
+    }
+
+    .sel-option:hover {
+      background: var(--accent, #ff007f);
+      color: var(--accent-ink, #fff);
+    }
+
+    /* ---- 8-bit sliders --------------------------------------------
+       Native chrome stripped so the track and thumb can be plain
+       rectangles. Both engines need their own selectors; neither
+       accepts them grouped, so they are duplicated deliberately. */
+    .panel input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 20px;
+      background: transparent;
+      cursor: pointer;
+      /* Form controls don't inherit colour from their container, so
+         without this currentColor in the track and thumb below falls
+         back to the UA default and stays dark on the Noir panel. */
+      color: inherit;
+    }
+
+    .panel input[type="range"]::-webkit-slider-runnable-track {
+      height: 10px;
+      background: rgba(127, 127, 127, 0.18);
+      border: 2px solid currentColor;
+    }
+
+    .panel input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px;
+      height: 18px;
+      /* Centres the block on the track: (track 10 - thumb 18) / 2. */
+      margin-top: -6px;
+      background: currentColor;
+      border: 2px solid currentColor;
+    }
+
+    .panel input[type="range"]::-moz-range-track {
+      height: 10px;
+      background: rgba(127, 127, 127, 0.18);
+      border: 2px solid currentColor;
+    }
+
+    .panel input[type="range"]::-moz-range-thumb {
+      width: 12px;
+      height: 18px;
+      border-radius: 0;
+      background: currentColor;
+      border: 2px solid currentColor;
+    }
+
+    /* Edge-to-Edge Grid Container */
+    .grid-container {
+      display: grid;
+      width: 100vw;
+      height: 100vh;
+      background-color: #f7f4fb;
+    }
+
+    .cell {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      user-select: none;
+      cursor: crosshair;
+      overflow: hidden;
+    }
+
+    .cell:hover {
+      outline: 2px solid var(--accent, #ff007f);
+      outline-offset: -2px;
+      z-index: 10;
+    }
+
+    /* Sequence frames that are drawn rather than typed. Sized in % so
+       they track the cell, and stroked with currentColor so they pick
+       up the same ink as the glyphs around them. */
+    .cell svg {
+      width: 66%;
+      height: 66%;
+      display: block;
+    }
+
+    /* Drag a picture anywhere over the canvas. Drawn as an inset frame so
+       it reads as "the whole grid is the target" without covering it. */
+    body.dropping::after {
+      content: '';
+      position: fixed;
+      inset: 8px;
+      z-index: 900;
+      pointer-events: none;
+      border: 3px dashed var(--accent, #ff007f);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Collapsible Side Panel -->
+  <div class="panel" id="panel">
+    <h2>Canvas</h2>
+
+    <!-- A set of control values applied at once. Drops back to Custom the
+         moment any of the controls it sets is moved by hand. -->
+    <div class="control-group">
+      <label for="preset">Preset</label>
+      <select id="preset">
+        <option value="custom">Custom</option>
+        <option value="poster">Poster</option>
+        <option value="storm">Storm</option>
+        <option value="minimal">Minimal</option>
+        <option value="aberration">Aberration</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label for="palette">Palette</label>
+      <select id="palette">
+        <option value="pop">Pop</option>
+        <option value="noir">Noir</option>
+        <option value="blanc">Blanc</option>
+        <option value="emerald">Emerald</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label for="cellSize">Size</label>
+      <input type="range" id="cellSize" min="16" max="56" value="26">
+      <span id="sizeVal" style="width: 22px; font-size: 11px; opacity: 0.6;">26</span>
+    </div>
+
+    <div class="control-group">
+      <label for="speed">Speed</label>
+      <input type="range" id="speed" min="0" max="200" value="100">
+    </div>
+
+    <div class="control-group">
+      <label for="density">Density</label>
+      <input type="range" id="density" min="0" max="20" value="7">
+      <span id="densityVal" style="width: 26px; font-size: 11px; opacity: 0.6;">7</span>
+    </div>
+
+    <div class="control-group">
+      <label for="scale">Scale</label>
+      <input type="range" id="scale" min="50" max="260" step="10" value="100">
+      <span id="scaleVal" style="width: 26px; font-size: 11px; opacity: 0.6;">1.0×</span>
+    </div>
+
+    <div class="control-group">
+      <label for="chroma">Chroma</label>
+      <input type="range" id="chroma" min="0" max="100" value="0">
+      <span id="chromaVal" style="width: 26px; font-size: 11px; opacity: 0.6;">off</span>
+    </div>
+
+    <div class="control-group">
+      <label for="split">Split</label>
+      <input type="range" id="split" min="0" max="4" value="0">
+      <span id="splitVal" style="width: 26px; font-size: 11px; opacity: 0.6;">off</span>
+    </div>
+
+    <!-- Whether the channel split reaches the typed message, or leaves it
+         clean the way it leaves the control panel. -->
+    <div class="control-group">
+      <label for="msgSplit">Msg</label>
+      <select id="msgSplit">
+        <option value="ignore">Ignore Split</option>
+        <option value="apply">Apply Split</option>
+      </select>
+    </div>
+
+    <!-- Which way the Regenerate front crosses the grid. -->
+    <div class="control-group">
+      <label for="wipe">Wipe</label>
+      <select id="wipe">
+        <option value="random">Random</option>
+        <option value="diagonal">Diagonal</option>
+        <option value="columns">Columns</option>
+        <option value="rows">Rows</option>
+        <option value="radial">Radial</option>
+        <option value="spiral">Spiral</option>
+        <option value="noise">Noise</option>
+      </select>
+    </div>
+
+    <hr>
+    <h2>Paint</h2>
+
+    <div class="control-group">
+      <label for="bgColor">BG</label>
+      <input type="color" id="bgColor" value="#e6197f">
+    </div>
+
+    <div class="control-group">
+      <label for="textColor">Ink</label>
+      <input type="color" id="textColor" value="#ffffff">
+    </div>
+
+    <div class="control-group">
+      <label for="brush">Brush</label>
+      <select id="brush">
+        <option value="">Character</option>
+        <option value="svg:0">Arrow Up</option>
+        <option value="svg:90">Arrow Right</option>
+        <option value="svg:180">Arrow Down</option>
+        <option value="svg:270">Arrow Left</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label for="cellChar">Char</label>
+      <input type="text" id="cellChar" maxlength="1" value="@">
+    </div>
+
+    <div class="control-group">
+      <label for="fillMode">Fill</label>
+      <select id="fillMode">
+        <option value="solid">Solid</option>
+        <option value="dots">Dots</option>
+        <option value="hatch">Hatch</option>
+      </select>
+    </div>
+
+    <!-- Governs brush strokes and the message alike; nothing else. -->
+    <div class="control-group">
+      <label for="decay">Decay</label>
+      <input type="range" id="decay" min="0" max="5" step="0.5" value="3">
+      <span id="decayVal" style="width: 26px; font-size: 11px; opacity: 0.6;">3s</span>
+    </div>
+
+    <!-- Which way the tail of a long drag fades. Auto follows the
+         palette's ground; the other two force it either way. -->
+    <div class="control-group">
+      <label for="trail">Trail</label>
+      <select id="trail">
+        <option value="auto">Auto</option>
+        <option value="dark">Darken</option>
+        <option value="light">Lighten</option>
+      </select>
+    </div>
+
+    <hr>
+    <h2>Message</h2>
+
+    <div class="control-group">
+      <label for="msgFormat">Format</label>
+      <select id="msgFormat">
+        <option value="small">Inline</option>
+        <option value="large">Large</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <!-- Longer than one line's worth on purpose: it wraps, and `//`
+           breaks it wherever you want. -->
+      <input type="text" id="msgText" maxlength="80" placeholder="Type… // breaks">
+      <button id="msgGo" class="msg-go" aria-label="Reveal text"></button>
+    </div>
+
+    <hr>
+
+    <button id="anim">Pause</button>
+    <button id="regen">Regenerate</button>
+    <!-- The picture is screened onto the grid as a halftone. Dropping one
+         anywhere on the canvas does the same thing. -->
+    <button id="imgBtn">Load Image</button>
+    <input type="file" id="imgFile" accept="image/*" class="sr-only">
+    <button id="share">Share Link</button>
+  </div>
+
+  <button class="panel-toggle" id="panelToggle" aria-label="Collapse controls">◀</button>
+
+  <!-- Dynamic Grid Canvas -->
+  <div class="grid-container" id="grid"></div>
+
+  <script>
+    const grid = document.getElementById('grid');
+    const bgColorInput = document.getElementById('bgColor');
+    const textColorInput = document.getElementById('textColor');
+    const cellCharInput = document.getElementById('cellChar');
+    const fillModeInput = document.getElementById('fillMode');
+    const speedInput = document.getElementById('speed');
+    const cellSizeInput = document.getElementById('cellSize');
+    const sizeVal = document.getElementById('sizeVal');
+    const paletteInput = document.getElementById('palette');
+    const brushInput = document.getElementById('brush');
+    const decayInput = document.getElementById('decay');
+    const decayVal = document.getElementById('decayVal');
+    const densityInput = document.getElementById('density');
+    const densityVal = document.getElementById('densityVal');
+
+    const scaleInput = document.getElementById('scale');
+    const scaleVal = document.getElementById('scaleVal');
+    const chromaInput = document.getElementById('chroma');
+    const chromaVal = document.getElementById('chromaVal');
+    const splitInput = document.getElementById('split');
+    const splitVal = document.getElementById('splitVal');
+    const msgFormat = document.getElementById('msgFormat');
+    // Up here with the rest rather than beside the message code, because
+    // the permalink needs to read it before that section is reached.
+    const msgText = document.getElementById('msgText');
+    const msgGo = document.getElementById('msgGo');
+    const trailInput = document.getElementById('trail');
+    const wipeInput = document.getElementById('wipe');
+    const presetInput = document.getElementById('preset');
+    const msgSplitInput = document.getElementById('msgSplit');
+
+    // How many drifting groups to keep alive, and how large each one is
+    // built. Both read live rather than cached, so the sliders take
+    // effect without a rebuild — they only govern what spawns next.
+    const targetEntities = () => +densityInput.value;
+    const sizeScale = () => +scaleInput.value / 100;
+    const panel = document.getElementById('panel');
+
+    // Seconds a user-made cell survives; 0 means it never expires.
+    const decaySeconds = () => +decayInput.value;
+    const panelToggle = document.getElementById('panelToggle');
+
+    // Keeps the control DOM aligned with the cell block that backs it.
+    function syncPanelGeometry() {
+      const w = panelCols * cellW;
+      panel.style.width = w + 'px';
+      panelToggle.style.left = (panelOpen ? w : 0) + 'px';
+      panelToggle.textContent = panelOpen ? '◀' : '▶';
+      panelToggle.setAttribute('aria-label', panelOpen ? 'Collapse controls' : 'Show controls');
+    }
+
+    /* ---------------------------------------------------------------
+       Palette sampled from the reference: pale paper, hot magenta,
+       violet/indigo and deep navy, with halftone dots bridging them.
+    --------------------------------------------------------------- */
+    /* Each palette fills the same slots, so the composition logic never
+       changes — only the values do. The slot names come from the original
+       hues; in the grey palettes read them as positions on a value ramp
+       rather than as colours.
+
+       `light` and `dark` are the ink anchors, and inkOnDark / inkOnLight
+       are picked against a cell's own ground. That pairing is what lets a
+       grey scheme stay legible: on Noir almost every ground is dark so
+       glyphs come out pale, and on Blanc the reverse. */
+    const PALETTES = {
+      pop: {
+        label: 'Pop',
+        colors: {
+          paper: '#f7f4fb', white: '#ffffff', lilac: '#d9d3ee',
+          lightPink: '#f2a3d5', pink: '#f0389b', magenta: '#e6197f',
+          violet: '#7b3ff2', indigo: '#4c1fc7', purple: '#9d6ae8',
+          navy: '#262261', light: '#ffffff', dark: '#262261',
+          // The panel's own cell block. Pop and Blanc share a white
+          // ground with dark ink; only Noir inverts.
+          panelBg: '#ffffff', panelFg: '#262261',
+          msgBg: '#ffffff', msgInk: '#262261',
+          // Hover / active accent. Pop is the one scheme that gets to be
+          // loud; the grey palettes take a neutral so hover doesn't
+          // import a colour the rest of the theme doesn't have.
+          accent: '#ff007f', accentInk: '#ffffff'
+        },
+        // Deliberately excludes the mid purple: on a violet ground it
+        // falls to ~1.5:1 and the glyph all but vanishes.
+        inkOnDark: ['#ffffff', '#f2a3d5', '#d9d3ee'],
+        inkOnLight: ['#7b3ff2', '#4c1fc7', '#e6197f', '#f0389b', '#9d6ae8', '#262261'],
+        // What the paint pickers reset to. Chosen to read *against* the
+        // canvas rather than blend into it, so a painted cell is visible
+        // the moment you draw it.
+        paint: { bg: '#e6197f', ink: '#ffffff' }
+      },
+
+      noir: {
+        label: 'Noir',
+        colors: {
+          paper: '#1c1c20', white: '#141418', lilac: '#5c5c68',
+          lightPink: '#6e6e7a', pink: '#3b3b43', magenta: '#33333a',
+          violet: '#45454e', indigo: '#2c2c33', purple: '#8f8f9c',
+          navy: '#232328', light: '#e9e9ee', dark: '#17171b',
+          // Sits below every canvas ground, so the block still reads as
+          // a distinct panel rather than blending into the artwork.
+          panelBg: '#101013', panelFg: '#e9e9ee',
+          msgBg: '#101013', msgInk: '#e9e9ee',
+          accent: '#3a3a44', accentInk: '#ffffff'
+        },
+        inkOnDark: ['#e9e9ee', '#c4c4cf', '#9d9daa', '#7c7c8a'],
+        inkOnLight: ['#1c1c21', '#33333a', '#4a4a53'],
+        // Noir's canvas is almost all dark, so paint lands light-on-dark.
+        paint: { bg: '#d5d5dc', ink: '#33333a' }
+      },
+
+      blanc: {
+        label: 'Blanc',
+        colors: {
+          paper: '#ffffff', white: '#f7f7f9', lilac: '#e6e6eb',
+          lightPink: '#b4b4c0', pink: '#dcdce2', magenta: '#cfcfd7',
+          violet: '#b8b8c2', indigo: '#a9a9b5', purple: '#9494a2',
+          navy: '#c4c4cd', light: '#ffffff', dark: '#33333a',
+          panelBg: '#ffffff', panelFg: '#33333a',
+          msgBg: '#ffffff', msgInk: '#33333a',
+          accent: '#33333a', accentInk: '#ffffff'
+        },
+        inkOnDark: ['#ffffff', '#e6e6eb'],
+        // Capped at #61616c. It is the *pale* entity grounds that set this
+        // ceiling, not the dark ones: #70707c lands at 1.45:1 on indigo
+        // and 1.57:1 on violet, and an entity spawned on either always
+        // carries it. #61616c is the lightest that clears 1.6:1 on all of
+        // them (1.65 / 1.79 / 1.89 / 1.99).
+        inkOnLight: ['#2b2b31', '#45454e', '#61616c'],
+        // Blanc is the mirror: a dark mark on a pale canvas.
+        paint: { bg: '#45454e', ink: '#f2f2f5' }
+      },
+
+      /* Near-black grounds with an emerald run through them. Structurally
+         Noir — dark canvas, dark panel, pale ink — but the value ramp is
+         green-tinted and the brightest slots carry the actual brand
+         green, so it lands on the halftone dots and the accent bars
+         rather than being spread thinly over everything. */
+      emerald: {
+        label: 'Emerald',
+        colors: {
+          // Grounds pushed almost to black so the neon has room to burn.
+          paper: '#0a0f0d', white: '#060a09', lilac: '#00ff9c',
+          lightPink: '#00d68f', pink: '#123328', magenta: '#0e2a21',
+          violet: '#08402e', indigo: '#10241d', purple: '#5cffc9',
+          navy: '#0b1a15', light: '#c7ffe9', dark: '#050807',
+          panelBg: '#080d0b', panelFg: '#c7ffe9',
+          // The one palette where a saturated accent is on-theme.
+          accent: '#00ff9c', accentInk: '#04120c',
+          // The message carries its own pair so the letters can sit on a
+          // deep green block rather than borrowing the panel's near-black.
+          // White ink, so the word reads as the one hard-lit thing on a
+          // canvas that is otherwise all green. Other palettes reuse theirs.
+          msgBg: '#08402e', msgInk: '#ffffff'
+        },
+        inkOnDark: ['#00ff9c', '#5cffc9', '#c7ffe9', '#00d68f'],
+        inkOnLight: ['#04120c', '#0b3b2c', '#08402e'],
+        paint: { bg: '#00ff9c', ink: '#04120c' }
+      }
+    };
+
+    let C, INK_ON_DARK, INK_ON_LIGHT;
+
+    function applyPalette(name) {
+      const p = PALETTES[name] || PALETTES.pop;
+      C = p.colors;
+      INK_ON_DARK = p.inkOnDark;
+      INK_ON_LIGHT = p.inkOnLight;
+      bgColorInput.value = p.paint.bg;
+      textColorInput.value = p.paint.ink;
+      document.body.style.backgroundColor = C.paper;
+      grid.style.backgroundColor = C.paper;
+      // The controls and the edge toggle both draw against the panel's
+      // cell block, so they read its ground and ink off these vars. Two
+      // schemes only: Noir is the dark one, Pop and Blanc share the light.
+      document.documentElement.style.setProperty('--panel-bg', C.panelBg);
+      document.documentElement.style.setProperty('--panel-fg', C.panelFg);
+      document.documentElement.style.setProperty('--accent', C.accent);
+      document.documentElement.style.setProperty('--accent-ink', C.accentInk);
+      // Derived rather than stored per palette: the scrollbar only needs
+      // to sit opposite its own ground, which the panel colour decides.
+      document.documentElement.style.setProperty(
+        '--scroll', isDark(C.panelBg) ? '#9a9aa6' : '#55555f');
+    }
+
+    // Stepped ink alphas, appended to a 6-digit hex as an 8-digit CSS
+    // colour. Quantised on purpose — a smooth ramp fights a chunky grid,
+    // and the steps stay shallow so the effect reads as softening rather
+    // than as cells being half-missing. Only the ink fades: the cell
+    // background stays solid, so silhouettes keep their hard edge.
+    const INK_FADE = ['', 'c4', '8a'];   // 100%, ~77%, ~54%
+    // Weighted so '@' dominates, like the reference blocks.
+    const GLYPHS = ['@', '@', '@', '@', '%', '%', '%', '/'];
+    const SLASHES = ['/', '/', '/', '\\'];
+    const MARKS = ['▲', '■', '▲', '↗', '↑'];
+    // Step sequences. A group holding one of these just walks it in a
+    // loop, one frame per step — the "clock" is only the fact that these
+    // four glyphs happen to read as a hand going round.
+    // Your arrow, as a drawn sequence frame. It has a head, so unlike the
+    // 180°-symmetric glyphs it needs eight steps to come back round.
+    const ARROW_PATH = 'M0 22 L0 -20 M-16 -6 L0 -20 L16 -6';
+    const ARROW_SEQ = [];
+    const ARROW_SVG = new Map();   // token -> markup
+    const ARROW_ANGLE = new Map(); // token -> degrees, and the "is drawn?" test
+
+    for (let i = 0; i < 8; i++) {
+      const angle = i * 45;
+      const token = 'svg:' + angle;
+      ARROW_SEQ.push(token);
+      ARROW_ANGLE.set(token, angle);
+      ARROW_SVG.set(token,
+        `<svg viewBox="-24 -24 48 48">` +
+          `<path d="${ARROW_PATH}" transform="rotate(${angle})" fill="none" ` +
+            `stroke="currentColor" stroke-width="3" ` +
+            `stroke-linecap="round" stroke-linejoin="round"/>` +
+        `</svg>`);
+    }
+
+    /* Regenerate plays as a transition rather than a cut: a diagonal
+       front crosses the grid from the top left, each cell it reaches
+       holds the sweeping-hand sequence for a beat, then decays away to
+       reveal the new composition underneath. Three zones exist at once —
+       ahead of the front (the old image, frozen), the band itself, and
+       behind it (the new image, already live). */
+    const WIPE_SWEEP = 1.5;   // seconds for the front to cross the grid
+    const WIPE_HOLD  = 2.0;   // seconds a cell holds before decaying back
+
+    const SEQUENCES = [
+      ['|', '/', '—', '\\'],              // hand sweeping round
+      ['.', 'o', 'O', '@', 'O', 'o'],     // pulsing in and out
+      ['^', '>', 'v', '<'],               // pointer turning
+      ARROW_SEQ                           // drawn arrow, full revolution
+    ];
+
+    const WIPE_SEQ = SEQUENCES[0];
+
+    /* The transition's whole character lives in one function: where a
+       cell sits in the front's order of arrival, normalised to 0..1.
+       Swap it and you swap the transition — the hold, the ragged trailing
+       edge and the glyph sequence are all unchanged, because none of them
+       ever cared which direction the front was travelling. */
+    const ARRIVALS = {
+      diagonal: (x, y) => (x + y) / Math.max(1, cols + rows - 2),
+      columns:  (x, y) => x / Math.max(1, cols - 1),
+      rows:     (x, y) => y / Math.max(1, rows - 1),
+
+      radial: (x, y) => {
+        const dx = (x - (cols - 1) / 2) / Math.max(1, cols / 2);
+        const dy = (y - (rows - 1) / 2) / Math.max(1, rows / 2);
+        return clamp01(Math.hypot(dx, dy) / Math.SQRT2);
+      },
+
+      spiral: (x, y) => {
+        const dx = x - (cols - 1) / 2, dy = y - (rows - 1) / 2;
+        const angle = Math.atan2(dy, dx) / (Math.PI * 2) + 0.5;
+        const r = Math.hypot(dx / Math.max(1, cols / 2), dy / Math.max(1, rows / 2));
+        // The wrap leaves a seam, which is exactly what reads as a spiral
+        // rather than as a wobbly radial.
+        return (angle + r) % 1;
+      },
+
+      // Not a front at all: every cell gets its own moment, coherent
+      // enough that the image comes apart in patches instead of pixels.
+      noise: (x, y) => clamp01((fbm(x * 0.16, y * 0.16, 31) - 0.25) / 0.5)
+    };
+    const WIPE_NAMES = Object.keys(ARRIVALS);
+
+    /* The control panel is a block of cells at the left edge, built with
+       the same diagonal sweep as Regenerate — left to right and down —
+       except the front leaves flat panel-coloured cells behind it instead
+       of the composition. Once the block is laid, the controls fade in. */
+    const PANEL_PX = 208;     // desired panel width, snapped to whole cells
+    const PANEL_SWEEP = 0.85; // seconds for the front to cross the block
+    const PANEL_TRAIL = 0.45; // seconds a cell shows the sequence first
+
+    // Anything the user adds — brush strokes and typed messages — holds
+    // for the Decay slider's value then hands its cells back. The extra
+    // noise term staggers the hand-back so it erodes in patches rather
+    // than vanishing on one frame. Decay 0 means keep it indefinitely.
+    const PAINT_SPREAD = 1.4;
+    const MSG_FADE_SPREAD = 0.8;
+
+    /* A drag longer than the tail starts going out behind the cursor: the
+       cells further back sink toward the canvas ground in steps, so the
+       stroke reads as already cooling before the decay clock hands any of
+       it back. Toward the *ground* rather than toward black, so it fades
+       to white on Blanc and to near-black on Emerald — on a pale canvas
+       darkening would read as a heavier mark, which is the opposite of
+       receding. Quantised like everything else here; a smooth gradient
+       would fight the grid. */
+    const STROKE_TAIL = 10;    // cells at the head that stay full strength
+    const STROKE_SPAN = 14;    // cells over which the fade ramps up
+    const STROKE_STEPS = 3;    // shading levels below full
+    const STROKE_FADE = 0.62;  // how far the oldest cell sinks toward ground
+
+    /* Typed message. Each letter's cell churns through this set before
+       settling on its target, and letters start half a scramble apart so
+       the reveal rolls across the word rather than landing at once. */
+    const SCRAMBLE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%/\\<>^*#+=';
+    const MSG_SCRAMBLE = 0.9;                  // seconds a cell churns
+    const MSG_STAGGER = MSG_SCRAMBLE / 2;      // next letter starts halfway
+    const MSG_CHURN = 20;                      // glyph swaps per second
+    // A message too wide for the grid wraps onto further lines, and `//`
+    // breaks one wherever you like. The roll still crosses the whole
+    // thing as one gesture, so past this many seconds the per-letter
+    // stagger tightens rather than letting a long message crawl.
+    const MSG_ROLL = 4.5;
+    const MSG_LINE_GAP = 1;                    // blank rows between big lines
+
+    /* ---------------------------------------------------------------
+       Large format. Each letter is drawn out of a 5×7 block of cells
+       rather than sitting in one, so the grid itself forms the letter.
+       The whole block churns first, then every cell that isn't part of
+       the stroke falls away — the letter is revealed by subtraction.
+    --------------------------------------------------------------- */
+    const GLYPH_W = 5, GLYPH_H = 7, GLYPH_GAP = 1;
+    const GLYPH_ADV = GLYPH_W + GLYPH_GAP;
+    const MSG_CLEAR = 0.5;   // seconds for the non-stroke cells to drop
+    // Each cell inside a letter starts on its own beat within this window,
+    // so the block assembles cell by cell instead of switching on at once.
+    const MSG_CELL_SPREAD = 0.45;
+
+    const FONT = {
+      'A': ['.###.', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+      'B': ['####.', '#...#', '#...#', '####.', '#...#', '#...#', '####.'],
+      'C': ['.###.', '#...#', '#....', '#....', '#....', '#...#', '.###.'],
+      'D': ['####.', '#...#', '#...#', '#...#', '#...#', '#...#', '####.'],
+      'E': ['#####', '#....', '#....', '####.', '#....', '#....', '#####'],
+      'F': ['#####', '#....', '#....', '####.', '#....', '#....', '#....'],
+      'G': ['.###.', '#...#', '#....', '#..##', '#...#', '#...#', '.###.'],
+      'H': ['#...#', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+      'I': ['#####', '..#..', '..#..', '..#..', '..#..', '..#..', '#####'],
+      'J': ['..###', '...#.', '...#.', '...#.', '...#.', '#..#.', '.##..'],
+      'K': ['#...#', '#..#.', '#.#..', '##...', '#.#..', '#..#.', '#...#'],
+      'L': ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
+      'M': ['#...#', '##.##', '#.#.#', '#...#', '#...#', '#...#', '#...#'],
+      'N': ['#...#', '##..#', '#.#.#', '#..##', '#...#', '#...#', '#...#'],
+      'O': ['.###.', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+      'P': ['####.', '#...#', '#...#', '####.', '#....', '#....', '#....'],
+      'Q': ['.###.', '#...#', '#...#', '#...#', '#.#.#', '#..#.', '.##.#'],
+      'R': ['####.', '#...#', '#...#', '####.', '#.#..', '#..#.', '#...#'],
+      'S': ['.####', '#....', '#....', '.###.', '....#', '....#', '####.'],
+      'T': ['#####', '..#..', '..#..', '..#..', '..#..', '..#..', '..#..'],
+      'U': ['#...#', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+      'V': ['#...#', '#...#', '#...#', '#...#', '#...#', '.#.#.', '..#..'],
+      'W': ['#...#', '#...#', '#...#', '#...#', '#.#.#', '##.##', '#...#'],
+      'X': ['#...#', '#...#', '.#.#.', '..#..', '.#.#.', '#...#', '#...#'],
+      'Y': ['#...#', '#...#', '.#.#.', '..#..', '..#..', '..#..', '..#..'],
+      'Z': ['#####', '....#', '...#.', '..#..', '.#...', '#....', '#####'],
+      '0': ['.###.', '#...#', '#..##', '#.#.#', '##..#', '#...#', '.###.'],
+      '1': ['..#..', '.##..', '..#..', '..#..', '..#..', '..#..', '#####'],
+      '2': ['.###.', '#...#', '....#', '...#.', '..#..', '.#...', '#####'],
+      '3': ['#####', '...#.', '..#..', '...#.', '....#', '#...#', '.###.'],
+      '4': ['...#.', '..##.', '.#.#.', '#..#.', '#####', '...#.', '...#.'],
+      '5': ['#####', '#....', '####.', '....#', '....#', '#...#', '.###.'],
+      '6': ['..##.', '.#...', '#....', '####.', '#...#', '#...#', '.###.'],
+      '7': ['#####', '....#', '...#.', '..#..', '.#...', '.#...', '.#...'],
+      '8': ['.###.', '#...#', '#...#', '.###.', '#...#', '#...#', '.###.'],
+      '9': ['.###.', '#...#', '#...#', '.####', '....#', '...#.', '.##..'],
+      '.': ['.....', '.....', '.....', '.....', '.....', '.##..', '.##..'],
+      '!': ['..#..', '..#..', '..#..', '..#..', '..#..', '.....', '..#..'],
+      '?': ['.###.', '#...#', '....#', '...#.', '..#..', '.....', '..#..'],
+      '-': ['.....', '.....', '.....', '#####', '.....', '.....', '.....'],
+      ' ': ['.....', '.....', '.....', '.....', '.....', '.....', '.....']
+    };
+
+    /* ---------------------------------------------------------------
+       Shape masks, in group-local coordinates normalised to the block.
+       A cell is part of the shape if the mask says so; the build-up
+       schedule then decides when it is allowed to show.
+    --------------------------------------------------------------- */
+    const SHAPES = {
+      triangle: (lx, ly, w, h) => {
+        const half = ((ly + 1) / h) * (w / 2);   // widens toward the base
+        return Math.abs(lx - (w - 1) / 2) <= half;
+      },
+      diamond: (lx, ly, w, h) => {
+        const dx = Math.abs(lx - (w - 1) / 2) / (w / 2);
+        const dy = Math.abs(ly - (h - 1) / 2) / (h / 2);
+        return dx + dy <= 1;
+      },
+      circle: (lx, ly, w, h) => {
+        const dx = (lx - (w - 1) / 2) / (w / 2);
+        const dy = (ly - (h - 1) / 2) / (h / 2);
+        return dx * dx + dy * dy <= 1;
+      }
+    };
+    const SHAPE_NAMES = Object.keys(SHAPES);
+
+    /* Letters reuse the very same contract. FONT is a 5×7 bitmap and a
+       mask is just (lx,ly,w,h) => bool, so scaling one into the other is
+       two divisions — and everything downstream is untouched: a letter
+       assembles row by row, softens at its rim and rots organically
+       exactly as a triangle does, because none of that code knows the
+       difference between them. */
+    const LETTER_POOL = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'];
+    const LETTER_SHARE = 0.45;   // of the shape entities, how many are letters
+
+    function letterMask(ch) {
+      const rows = FONT[ch] || FONT[' '];
+      return (lx, ly, w, h) => {
+        const gx = Math.min(GLYPH_W - 1, (lx * GLYPH_W / w) | 0);
+        const gy = Math.min(GLYPH_H - 1, (ly * GLYPH_H / h) | 0);
+        return rows[gy].charCodeAt(gx) === 35;
+      };
+    }
+
+    /* ---------------------------------------------------------------
+       Seeded randomness. Every scattered decision in the composition —
+       where the regions cut, which swatch a field takes, where the bars
+       land — draws from here, so a seed plus a grid size reproduces a
+       poster exactly. That is what makes a composition shareable: the
+       URL carries the number, not the picture.
+
+       mulberry32: one multiply-xor round, no state beyond an int32.
+    --------------------------------------------------------------- */
+    let seed = (Math.random() * 0x100000000) >>> 0;
+    let rngState = 0;
+
+    function rng() {
+      rngState = (rngState + 0x6d2b79f5) | 0;
+      let t = rngState;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    }
+
+    // Called at the top of generate(), so the poster is laid from the
+    // same point in the stream every time. Entities spawned later drift
+    // off that stream with real time, which is fine — they are motion,
+    // not composition.
+    const reseed = () => { rngState = seed | 0; };
+
+    const rand  = (a, b) => a + rng() * (b - a);
+    const irand = (a, b) => Math.floor(rand(a, b + 1));
+    const pick  = (arr) => arr[Math.floor(rng() * arr.length)];
+    const chance = (p) => rng() < p;
+    const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+    /* ---------------------------------------------------------------
+       Value noise. Spatially coherent, so neighbouring cells get
+       similar values and a group erodes in organic patches instead of
+       speckling away one cell at a time.
+    --------------------------------------------------------------- */
+    function hash2(x, y, s) {
+      let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(s, 1274126177);
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+    }
+
+    const smoothstep = (t) => t * t * (3 - 2 * t);
+
+    function valueNoise(x, y, s) {
+      const x0 = Math.floor(x), y0 = Math.floor(y);
+      const fx = smoothstep(x - x0), fy = smoothstep(y - y0);
+      const a = hash2(x0, y0, s),     b = hash2(x0 + 1, y0, s);
+      const c = hash2(x0, y0 + 1, s), d = hash2(x0 + 1, y0 + 1, s);
+      return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+    }
+
+    // Two octaves is enough texture without turning to grain.
+    function fbm(x, y, s) {
+      return valueNoise(x, y, s) * 0.66 + valueNoise(x * 2.3, y * 2.3, s + 101) * 0.34;
+    }
+
+    /* ---------------------------------------------------------------
+       Halftone fills. This is the <pattern> you suggested, serialised
+       into a data-URI so each cell can carry its own dot colour and
+       spacing while still tiling as one continuous field.
+    --------------------------------------------------------------- */
+    function dotFill(color, size, radius) {
+      const svg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">` +
+          `<defs>` +
+            `<pattern id="d" width="${size}" height="${size}" patternUnits="userSpaceOnUse">` +
+              `<circle cx="${size / 2}" cy="${size / 2}" r="${radius}" fill="${color}"/>` +
+            `</pattern>` +
+          `</defs>` +
+          `<rect width="100%" height="100%" fill="url(#d)"/>` +
+        `</svg>`;
+      return { kind: 'dots', image: `url("data:image/svg+xml,${encodeURIComponent(svg)}")`, size };
+    }
+
+    // Diagonals are drawn as three clipped segments rather than a rotated
+    // tile, so the stripes still line up across the tile seams.
+    function hatchFill(color, size, weight) {
+      const s = size;
+      const d = `M-1,1 l2,-2 M0,${s} l${s},${-s} M${s - 1},${s + 1} l2,-2`;
+      const svg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}">` +
+          `<defs>` +
+            `<pattern id="h" width="${s}" height="${s}" patternUnits="userSpaceOnUse">` +
+              `<path d="${d}" stroke="${color}" stroke-width="${weight}" fill="none"/>` +
+            `</pattern>` +
+          `</defs>` +
+          `<rect width="100%" height="100%" fill="url(#h)"/>` +
+        `</svg>`;
+      return { kind: 'hatch', image: `url("data:image/svg+xml,${encodeURIComponent(svg)}")`, size: s };
+    }
+
+    // House rule: a halftone cell is a texture, never a character slot.
+    const suppressesChar = (fill) => !!fill && fill.kind === 'dots';
+
+    /* ---------------------------------------------------------------
+       Chromatic drift. Rather than a fourth palette — the PALETTES
+       entries are fixed swatch lists, and a position-dependent one
+       wouldn't fit that shape — this pushes the red and blue channels
+       in opposite directions based on how far across the grid a cell
+       sits. Left of centre gains red and loses blue; right of centre
+       does the reverse. It rides on top of whichever palette is loaded.
+
+       Results are memoised per colour-and-column: this runs for every
+       cell every frame, and parsing plus rebuilding a hex string that
+       often is real work. The cache is bounded by palette size × cols.
+    --------------------------------------------------------------- */
+    const CHROMA_PUSH = 78;   // strongest per-channel shift, in 0–255
+    const chromaCache = new Map();
+    const chromaAmount = () => +chromaInput.value / 100;
+
+    const clamp255 = (v) => (v < 0 ? 0 : v > 255 ? 255 : v | 0);
+    const hex2 = (v) => v.toString(16).padStart(2, '0');
+
+    function chromaShift(hex, x, amt) {
+      if (!amt || !hex || hex.charCodeAt(0) !== 35) return hex;
+
+      const key = hex + x;
+      const hit = chromaCache.get(key);
+      if (hit !== undefined) return hit;
+
+      const n = parseInt(hex.slice(1, 7), 16);
+      // +1 hard left, -1 hard right.
+      const k = (0.5 - x / Math.max(1, cols - 1)) * 2;
+      const push = k * amt * CHROMA_PUSH;
+      const out = '#'
+        + hex2(clamp255(((n >> 16) & 255) + push))
+        + hex2((n >> 8) & 255)
+        + hex2(clamp255((n & 255) - push))
+        + hex.slice(7);   // keeps any 8-digit alpha suffix intact
+
+      chromaCache.set(key, out);
+      return out;
+    }
+
+    /* ---------------------------------------------------------------
+       Channel split — true chromatic aberration rather than a tint. A
+       cell takes its red from `d` cells to the left and its blue from
+       `d` to the right, keeping its own green. Inside a flat block all
+       three sources agree and nothing changes; only edges fringe, which
+       is exactly where aberration shows in the real thing.
+
+       Works on the hex strings directly: the channels are already byte
+       pairs, so this is three slices and a join with no parsing at all.
+    --------------------------------------------------------------- */
+    const splitCells = () => +splitInput.value;
+
+    function splitRGB(arr, i, d, guard) {
+      const x = i % cols;
+      const row = i - x;
+      const mid = arr[i];
+      const li = row + (x - d < 0 ? 0 : x - d);
+      const ri = row + (x + d >= cols ? cols - 1 : x + d);
+      // A guarded neighbour lends back this cell's own colour instead of
+      // its real one. Exempting a surface from being fringed isn't enough
+      // on its own: the cells beside it still sample it, so the panel's
+      // white or the message's ink bleeds out as a halo — which reads as
+      // a rendering fault rather than as aberration.
+      const lo = guard[li] ? mid : arr[li];
+      const hi = guard[ri] ? mid : arr[ri];
+      // Flat neighbourhood: no fringe to draw, and this is most cells.
+      if (lo === mid && hi === mid) return mid;
+      return '#' + lo.slice(1, 3) + mid.slice(3, 5) + hi.slice(5, 7) + mid.slice(7);
+    }
+
+    function isDark(hex) {
+      const n = parseInt(hex.slice(1), 16);
+      const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+      return (0.2126 * r + 0.7152 * g + 0.0722 * b) < 140;
+    }
+
+    /* ---------------------------------------------------------------
+       Overprint. Where two groups cross, the overlap takes a third
+       colour instead of the top one simply winning — so a crossing is an
+       event rather than a collision, the way two passes of ink on a
+       press give you a colour neither plate had.
+
+       Multiply on a pale canvas, screen on a dark one. Same rule the
+       photo screening uses and for the same reason: ink darkens paper,
+       light adds to black. Memoised, because a crossing is the same
+       pair of colours on every frame it lasts.
+    --------------------------------------------------------------- */
+    const overCache = new Map();
+
+    function overprint(a, b) {
+      if (a === b) return a;
+
+      const key = a + b;
+      const hit = overCache.get(key);
+      if (hit !== undefined) return hit;
+
+      const x = parseInt(a.slice(1, 7), 16), y = parseInt(b.slice(1, 7), 16);
+      const lift = isDark(C.paper);
+      const ch = (sh) => {
+        const p = (x >> sh) & 255, q = (y >> sh) & 255;
+        return lift ? 255 - ((255 - p) * (255 - q)) / 255 : (p * q) / 255;
+      };
+      const out = '#' + hex2(clamp255(ch(16))) + hex2(clamp255(ch(8))) + hex2(clamp255(ch(0)));
+
+      overCache.set(key, out);
+      return out;
+    }
+
+    /* ---------------------------------------------------------------
+       Two layers. `base` is the still poster — fields, bars, anything
+       hand-painted — and never animates. `entities` are the drifting
+       groups composited over it each frame. Keeping them separate is
+       what lets a group move away and reveal what was underneath.
+    --------------------------------------------------------------- */
+    let cols = 0, rows = 0, cellW = 0, cellH = 0;
+    let base = [], entities = [], els = [];
+
+    // What is currently on screen, held as parallel arrays so the frame
+    // diff never allocates. viewSvg tracks which cells already hold drawn
+    // markup, so a spinning arrow can be re-angled instead of re-parsed.
+    let viewBg = [], viewFill = [], viewChar = [], viewFg = [], viewSvg = [];
+    // Per-frame composite of the entity layer.
+    let coverBg = [], coverChar = [], coverFg = [], coverOn = null;
+    // Resolved cell state between composite's two passes. The channel
+    // split reads sideways, so nothing can be flushed until every cell
+    // has been worked out. postUi marks the UI surfaces — 1 for the panel,
+    // 2 for the message — kept apart because only the panel is exempt from
+    // the split unconditionally. splitGuard is that decision resolved into
+    // a flag per cell, which is the form splitRGB needs to test neighbours.
+    let postBg = [], postFill = [], postFg = [], postChar = [], postUi = null;
+    let splitGuard = null;
+    // Active regenerate transition, holding a frozen copy of the outgoing
+    // image. Null whenever nothing is sweeping.
+    let wipe = null;
+    // Panel occupancy: how many columns it claims, whether it is currently
+    // laid, and the build/unbuild sweep when that is changing.
+    let panelCols = 0;
+    let panelOpen = true;
+    let panelAnim = null;   // { t, step, dir: 1 building | -1 clearing }
+
+    // Hand-painted cells awaiting reversion: index -> { prev, at, jit, ... }.
+    // `prev` is what the cell held before the brush touched it, so the
+    // revert restores the composition rather than blanking the cell. The
+    // record also keeps the colours as painted, undimmed, so the trail
+    // shading below can be recomputed rather than compounded.
+    let painted = new Map();
+    // Indices touched since the mouse went down, newest last.
+    let stroke = [];
+    let clock = 0;   // seconds of artwork time, paused and speed-scaled
+
+    // Typed message overlay: { text, lines, lineOf, rowIn, t, step, endAt }.
+    // Held in grid coordinates, so a reshape re-lays it out rather than
+    // leaving it indexing cells that have moved.
+    let message = null;
+
+    /* ---------------------------------------------------------------
+       Dropped picture, screened onto the grid. This is what the halftone
+       fill was always for: one dot per cell, its radius set by how dark
+       that part of the image is, which is exactly how a real halftone
+       renders tone out of a single ink. The picture is kept decoded so a
+       reshape re-screens it at the new resolution instead of scaling a
+       sampled copy — the dots stay one-per-cell at every size.
+    --------------------------------------------------------------- */
+    const PHOTO_LEVELS = 7;   // tone steps, including bare ground and solid
+    const PHOTO_TILE = 6;     // screen pitch in px; ~4 dots across a cell
+
+    let photoSrc = null;      // the decoded <img>, or null
+    let photo = null;         // Uint8Array of luminance levels, 0 = black
+    let photoFills = [];      // one fill per level, built once per palette
+
+    function samplePhoto() {
+      if (!photoSrc || !cols || !rows) { photo = null; return; }
+
+      const cv = document.createElement('canvas');
+      cv.width = cols;
+      cv.height = rows;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+
+      // Cover, not stretch: crop the long axis so the picture keeps its
+      // proportions however the window is shaped.
+      const sa = photoSrc.width / photoSrc.height, da = cols / rows;
+      let sw = photoSrc.width, sh = photoSrc.height, sx = 0, sy = 0;
+      if (sa > da) { sw = photoSrc.height * da; sx = (photoSrc.width - sw) / 2; }
+      else { sh = photoSrc.width / da; sy = (photoSrc.height - sh) / 2; }
+      ctx.drawImage(photoSrc, sx, sy, sw, sh, 0, 0, cols, rows);
+
+      const d = ctx.getImageData(0, 0, cols, rows).data;
+      photo = new Uint8Array(cols * rows);
+      for (let i = 0; i < photo.length; i++) {
+        const o = i * 4;
+        const l = (0.2126 * d[o] + 0.7152 * d[o + 1] + 0.0722 * d[o + 2]) / 255;
+        photo[i] = Math.round(l * (PHOTO_LEVELS - 1));
+      }
+    }
+
+    // Thousands of cells share seven patterns, so the data-URIs are built
+    // per level and reused rather than one per cell.
+    function buildPhotoFills(ink) {
+      photoFills = [];
+      for (let l = 0; l < PHOTO_LEVELS; l++) {
+        // Bare ground at one end, solid ink at the other; neither is dots.
+        if (l === 0 || l === PHOTO_LEVELS - 1) { photoFills.push(null); continue; }
+        const t = l / (PHOTO_LEVELS - 2);
+        photoFills.push(dotFill(ink, PHOTO_TILE, 0.7 + t * (PHOTO_TILE / 2 - 0.7)));
+      }
+    }
+
+    function buildPhotoField() {
+      const ground = C.paper;
+      const dark = isDark(ground);
+      const ink = dark ? C.light : C.dark;
+      buildPhotoFills(ink);
+
+      for (let i = 0; i < base.length; i++) {
+        // How much ink this cell wants. On a pale ground that is how dark
+        // the pixel is; on a dark one the ink is pale, so it inverts —
+        // otherwise every picture would come out as its own negative.
+        const amount = dark ? photo[i] : PHOTO_LEVELS - 1 - photo[i];
+        const solid = amount === PHOTO_LEVELS - 1;
+        const c = base[i];
+        c.bg = solid ? ink : ground;
+        c.fill = photoFills[amount];
+        c.fg = solid ? ground : ink;
+        c.char = '';
+      }
+    }
+
+    const blank = () => ({ bg: null, fill: null, char: '', fg: null });
+    const at = (x, y) => base[y * cols + x];
+    const inside = (x, y) => x >= 0 && y >= 0 && x < cols && y < rows;
+
+    function paintRect(x0, y0, w, h, fn) {
+      for (let y = y0; y < y0 + h; y++) {
+        for (let x = x0; x < x0 + w; x++) {
+          if (inside(x, y)) fn(at(x, y), x, y);
+        }
+      }
+    }
+
+    /* --- Base layer: fields -------------------------------------- */
+
+    function splitRegions(x, y, w, h, depth, out) {
+      const tooSmall = w < 7 || h < 6;
+      if (depth <= 0 || tooSmall || (depth < 3 && chance(0.25))) {
+        out.push({ x, y, w, h });
+        return;
+      }
+      if (w / h > 0.8 && w >= 8) {
+        const cut = irand(Math.ceil(w * 0.3), Math.floor(w * 0.7));
+        splitRegions(x, y, cut, h, depth - 1, out);
+        splitRegions(x + cut, y, w - cut, h, depth - 1, out);
+      } else {
+        const cut = irand(Math.ceil(h * 0.3), Math.floor(h * 0.7));
+        splitRegions(x, y, w, cut, depth - 1, out);
+        splitRegions(x, y + cut, w, h - cut, depth - 1, out);
+      }
+    }
+
+    // Colour scheme biased by horizontal position: pale on the left,
+    // saturated through the middle, deep navy toward the right.
+    function fieldScheme(t) {
+      const roll = t * 0.95 + rand(-0.22, 0.28);
+      if (roll < 0.4) {
+        return { bg: chance(0.65) ? C.white : C.paper, dot: pick([C.lightPink, C.lightPink, C.pink, C.purple]) };
+      }
+      if (roll < 0.72) {
+        // Paper grounds take a hot dot; saturated grounds take a pale one.
+        return chance(0.35)
+          ? { bg: C.paper, dot: pick([C.magenta, C.pink]) }
+          : { bg: pick([C.magenta, C.pink]), dot: pick([C.lightPink, C.white]) };
+      }
+      return { bg: pick([C.navy, C.indigo, C.navy]), dot: pick([C.lilac, C.white, C.purple]) };
+    }
+
+    function buildFields() {
+      if (photo) return buildPhotoField();
+
+      const regions = [];
+      splitRegions(0, 0, cols, rows, 5, regions);
+
+      regions.forEach((r) => {
+        const t = (r.x + r.w / 2) / cols;
+        const s = fieldScheme(t);
+        const solid = chance(0.28);
+        const size = irand(4, 9);
+        const fill = solid ? null : dotFill(s.dot, size, Math.max(0.9, size * 0.2));
+        paintRect(r.x, r.y, r.w, r.h, (c) => {
+          c.bg = s.bg;
+          c.fill = fill;
+        });
+      });
+    }
+
+    /* --- Base layer: static bars --------------------------------- */
+
+    // Ink and dots are chosen against the ground rather than named
+    // outright, so a bar stays legible whichever palette is loaded.
+    const inkFor = (bg) => (isDark(bg) ? C.light : C.dark);
+
+    function barStyle() {
+      const style = pick(['solid', 'solid', 'dots', 'hatch', 'paper']);
+      if (style === 'solid') {
+        const bg = pick([C.indigo, C.violet, C.magenta, C.pink]);
+        return { bg, fill: null, fg: inkFor(bg) };
+      }
+      if (style === 'dots') {
+        const bg = pick([C.lilac, C.paper, C.violet]);
+        const size = irand(4, 7);
+        return { bg, fill: dotFill(inkFor(bg), size, size * 0.22), fg: inkFor(bg) };
+      }
+      if (style === 'hatch') {
+        return {
+          bg: C.paper,
+          fill: hatchFill(pick([C.lightPink, C.purple]), irand(6, 10), 3),
+          fg: inkFor(C.paper)
+        };
+      }
+      const bg = pick([C.paper, C.lilac, C.white]);
+      return { bg, fill: null, fg: inkFor(bg) };
+    }
+
+    function buildBars() {
+      const count = irand(5, 8);
+      const band = irand(1, Math.max(2, Math.round(rows * 0.25)));
+      const depth = Math.max(3, Math.round(rows * 0.5));
+
+      for (let i = 0; i < count; i++) {
+        const w = irand(6, Math.min(cols - 2, Math.round(cols * 0.55)));
+        const x = irand(Math.round(-w * 0.15), Math.max(0, cols - Math.round(w * 0.85)));
+        const y = band + Math.round((i / count) * depth) + irand(-1, 1);
+        if (y < 0 || y >= rows) continue;
+        const s = barStyle();
+
+        paintRect(x, y, w, 1, (c) => {
+          c.bg = s.bg;
+          c.fill = s.fill;
+          c.char = '';
+          c.fg = s.fg;
+        });
+
+        // Halftone bars stay bare, so don't bother seeding them.
+        if (chance(0.7) && !suppressesChar(s.fill)) {
+          const set = chance(0.2) ? MARKS : GLYPHS;
+          const n = irand(1, Math.max(2, Math.round(w * 0.35)));
+          for (let k = 0; k < n; k++) {
+            const gx = x + irand(0, w - 1);
+            if (inside(gx, y)) { at(gx, y).char = pick(set); at(gx, y).fg = s.fg; }
+          }
+        }
+      }
+    }
+
+    /* ---------------------------------------------------------------
+       Entities: rectangular groups that drift and decay.
+
+       Each owns its glyph buffer, so the pattern travels with the group
+       rather than the group sliding across a fixed pattern. Same for the
+       noise, which is sampled in group-local coordinates.
+    --------------------------------------------------------------- */
+    function spawnEntity(kind) {
+      const bar = kind === 'bar';
+
+      // A shape is either a geometric silhouette or a letter. Both are
+      // masks of the same signature, so the mask travels on the entity
+      // rather than being looked up by name — which is the whole reason
+      // letters cost nothing to add.
+      let shape = null, mask = null, letter = null;
+      if (kind === 'shape') {
+        if (chance(LETTER_SHARE)) {
+          letter = pick(LETTER_POOL);
+          shape = 'letter';
+          mask = letterMask(letter);
+        } else {
+          shape = pick(SHAPE_NAMES);
+          mask = SHAPES[shape];
+        }
+      }
+
+      // Every span is scaled and then clamped to the grid: an entity wider
+      // than the canvas would have nowhere to spawn and would sit pinned
+      // to the left edge, so the ceiling matters as much as the multiplier.
+      const s = sizeScale();
+      const span = (a, b, max) => Math.max(2, Math.min(max, Math.round(irand(a, b) * s)));
+
+      let w, h;
+      if (bar) {
+        w = span(8, Math.max(10, Math.round(cols * 0.45)), cols);
+        // Bars are bands rather than blocks, so they only thicken slowly.
+        h = Math.max(1, Math.min(rows, Math.round(s)));
+      } else if (letter) {
+        // Sized off the height, then given the font's own 5:7 ratio, so a
+        // letter stays a letter instead of being stretched to fit a box.
+        // The floor is the bitmap itself: any smaller and rows drop out.
+        h = Math.max(GLYPH_H, Math.min(rows, span(11, 19, rows)));
+        w = Math.max(GLYPH_W, Math.min(cols, Math.round(h * GLYPH_W / GLYPH_H)));
+      } else if (shape) {
+        w = span(9, 17, cols);   // roomy enough for the silhouette to read
+        h = span(8, 13, rows);
+      } else {
+        w = span(7, 13, cols);
+        h = span(6, 13, rows);
+      }
+
+      // Bars sweep horizontally; shapes mostly hold still while they
+      // assemble; blocks loiter and rot in place.
+      let vx, vy;
+      if (bar) {
+        vx = chance(0.5) ? rand(1.2, 3.2) : -rand(1.2, 3.2);
+        vy = 0;
+      } else if (shape) {
+        if (chance(0.6)) { vx = 0; vy = 0; }
+        else { vx = rand(-0.6, 0.6); vy = rand(-0.25, 0.25); }
+      } else if (chance(0.35)) {
+        vx = 0; vy = 0;                       // stationary, decays where it sits
+      } else {
+        vx = rand(-1.4, 1.4);
+        vy = rand(-0.5, 0.5);
+      }
+
+      // Enter from off-screen when moving fast enough to arrive.
+      let x, y;
+      if (bar) {
+        x = vx > 0 ? -w : cols;
+        y = irand(0, rows - 1);
+      } else if (shape) {
+        // Keep the whole silhouette on screen, or it reads as a blob.
+        x = irand(0, Math.max(0, cols - w));
+        y = irand(0, Math.max(0, rows - h));
+      } else {
+        x = rand(-2, cols - w + 2);
+        y = rand(-1, rows - h + 1);
+      }
+
+      // A group either walks a sequence or scatters random glyphs.
+      const seq = !bar && chance(0.55) ? pick(SEQUENCES) : null;
+      const set = !bar && chance(0.2) ? SLASHES : GLYPHS;
+      const onPaper = chance(0.72);
+      const bg = onPaper ? (chance(0.6) ? C.paper : C.white) : pick([C.magenta, C.indigo, C.navy, C.violet]);
+
+      const e = {
+        x, y, w, h, vx, vy, seq, set, bg, shape, mask, letter,
+        seed: irand(0, 9999),
+        age: 0,
+        life: bar ? rand(7, 15) : shape ? rand(11, 21) : rand(9, 20),
+        buildTime: rand(1.6, 3.6),  // seconds to lay every row
+        jitter: rand(0.6, 2.4),     // how far a cell may lag its own row
+        buildUp: chance(0.5),       // assemble from the base or the apex
+        step: irand(0, 3),        // where in the sequence it starts
+        every: irand(1, 3),       // advance one step every N frames
+        frame: 0,
+        wave: chance(0.45),       // shift each cell along the sequence
+        chars: new Array(w * h),
+        inks: new Array(w * h),
+        // Per-cell fade step for shapes; filled in below.
+        fade: null,
+        // Ragged staircase left edge, carried along with the group.
+        indent: new Array(h)
+      };
+
+      let ind = 0;
+      for (let r = 0; r < h; r++) {
+        ind = Math.max(0, Math.min(w - 2, ind + irand(-1, 2)));
+        e.indent[r] = bar ? 0 : ind;
+      }
+      for (let i = 0; i < w * h; i++) {
+        e.chars[i] = pick(set);
+        e.inks[i] = pick(isDark(bg) ? INK_ON_DARK : INK_ON_LIGHT);
+      }
+
+      // Rim cells — those with a neighbour outside the mask — sit one step
+      // down for good, so the silhouette softens at its outline. Computed
+      // once here rather than per frame, since the mask never changes.
+      if (shape) {
+        const held = (x, y) => x >= 0 && y >= 0 && x < w && y < h && mask(x, y, w, h);
+        e.fade = new Uint8Array(w * h);
+        for (let ly = 0; ly < h; ly++) {
+          for (let lx = 0; lx < w; lx++) {
+            if (!mask(lx, ly, w, h)) continue;
+            const rim = !held(lx - 1, ly) || !held(lx + 1, ly) ||
+                        !held(lx, ly - 1) || !held(lx, ly + 1);
+            if (rim) e.fade[ly * w + lx] = 1;
+          }
+        }
+      }
+      return e;
+    }
+
+    // Where a cell sits in the sequence: the group's step, plus a per-cell
+    // offset so the sequence ripples across the block instead of flashing.
+    function seqChar(e, lx, ly) {
+      const off = e.wave ? lx + ly : 0;
+      return e.seq[(e.step + off) % e.seq.length];
+    }
+
+    /* ---------------------------------------------------------------
+       The dissolve. `grain` is organic but coherent; `ramp` runs along
+       the direction of travel. Mixing them gives every cell a
+       resistance, which an age-driven threshold eats into — so groups
+       rot from the trailing edge in ragged patches, not a clean wipe.
+    --------------------------------------------------------------- */
+    function cellAlive(e, lx, ly, appear, decay) {
+      const grain = fbm((lx + e.seed) * 0.28, (ly - e.age * 0.5) * 0.28, e.seed);
+
+      let ramp = 0.5;
+      if (e.vx || e.vy) {
+        ramp = Math.abs(e.vx) >= Math.abs(e.vy)
+          ? (e.vx > 0 ? lx / Math.max(1, e.w - 1) : 1 - lx / Math.max(1, e.w - 1))
+          : (e.vy > 0 ? ly / Math.max(1, e.h - 1) : 1 - ly / Math.max(1, e.h - 1));
+      }
+
+      // Materialise from the leading edge, dissolve from the trailing one.
+      const resistAppear = grain * 0.6 + (1 - ramp) * 0.4;
+      const resistDecay  = grain * 0.6 + ramp * 0.4;
+      return resistAppear <= appear && resistDecay > decay;
+    }
+
+    /* ---------------------------------------------------------------
+       Shapes assemble instead of materialising: rows land in order, but
+       each cell carries a jitter that lets it lag its own row by up to a
+       couple of row-times. That keeps the leading edge ragged rather
+       than a ruled line, while the shape still reads as being built.
+       They still rot organically, so the arc is mechanical in, organic out.
+    --------------------------------------------------------------- */
+    function stampShape(e, decay) {
+      const build = clamp01(e.age / e.buildTime);
+      const mask = e.mask;
+      const ox = Math.round(e.x), oy = Math.round(e.y);
+      // Normalising by h + jitter keeps the latest cell's turn below 1,
+      // so nothing is stranded once build saturates.
+      const span = e.h + e.jitter;
+
+      for (let ly = 0; ly < e.h; ly++) {
+        const gy = oy + ly;
+        if (gy < 0 || gy >= rows) continue;
+        for (let lx = 0; lx < e.w; lx++) {
+          if (!mask(lx, ly, e.w, e.h)) continue;
+          const gx = ox + lx;
+          if (gx < 0 || gx >= cols) continue;
+
+          const row = e.buildUp ? e.h - 1 - ly : ly;
+          const turn = (row + hash2(lx, ly, e.seed) * e.jitter) / span;
+          if (build < turn) continue;
+
+          const grain = fbm((lx + e.seed) * 0.3, (ly - e.age * 0.4) * 0.3, e.seed);
+          if (grain <= decay) continue;
+
+          const i = gy * cols + gx;
+          const li = ly * e.w + lx;
+
+          // A cell arrives faint and firms up over its first moments. The
+          // rim step is held against it, so an edge cell never fully
+          // resolves — whichever is fainter wins.
+          const since = build - turn;
+          const arriving = since < 0.05 ? 2 : since < 0.12 ? 1 : 0;
+          const level = Math.max(arriving, e.fade[li]);
+
+          if (coverOn[i]) {
+            // Crossing another group. The ink is re-picked against the
+            // blended ground rather than carried over, or a glyph chosen
+            // for one colour would be left sitting on a different one.
+            const bg = overprint(coverBg[i], e.bg);
+            coverBg[i] = bg;
+            coverFg[i] = (isDark(bg) ? C.light : C.dark) + INK_FADE[level];
+          } else {
+            coverOn[i] = 1;
+            coverBg[i] = e.bg;
+            coverFg[i] = e.inks[li] + INK_FADE[level];
+          }
+          coverChar[i] = e.seq ? seqChar(e, lx, ly) : e.chars[li];
+        }
+      }
+    }
+
+    function stampEntity(e) {
+      const decay = clamp01((e.age / e.life - 0.45) / 0.55);
+      if (e.shape) return stampShape(e, decay);
+
+      const appear = clamp01(e.age / 1.4);
+      const ox = Math.round(e.x), oy = Math.round(e.y);
+
+      for (let ly = 0; ly < e.h; ly++) {
+        const gy = oy + ly;
+        if (gy < 0 || gy >= rows) continue;
+        for (let lx = e.indent[ly]; lx < e.w; lx++) {
+          const gx = ox + lx;
+          if (gx < 0 || gx >= cols) continue;
+          if (!cellAlive(e, lx, ly, appear, decay)) continue;
+
+          const i = gy * cols + gx;
+          const li = ly * e.w + lx;
+
+          if (coverOn[i]) {
+            const bg = overprint(coverBg[i], e.bg);
+            coverBg[i] = bg;
+            coverFg[i] = isDark(bg) ? C.light : C.dark;
+          } else {
+            coverOn[i] = 1;
+            coverBg[i] = e.bg;
+            coverFg[i] = e.inks[li];
+          }
+          coverChar[i] = e.seq ? seqChar(e, lx, ly) : e.chars[li];
+        }
+      }
+    }
+
+    function updateEntity(e, dt) {
+      e.age += dt;
+      e.x += e.vx * dt;
+      e.y += e.vy * dt;
+
+      e.frame++;
+      if (e.seq) {
+        if (e.frame % e.every === 0) e.step++;
+      } else if (e.frame % 2 === 0) {
+        // Re-roll a slice of the buffer so the group shimmers as it moves.
+        const n = Math.max(1, Math.round(e.chars.length * 0.06));
+        for (let k = 0; k < n; k++) {
+          e.chars[irand(0, e.chars.length - 1)] = pick(e.set);
+        }
+      }
+
+      const gone = e.age > e.life;
+      const driftedOff = e.x + e.w < -2 || e.x > cols + 2 || e.y + e.h < -2 || e.y > rows + 2;
+      return !(gone || driftedOff);
+    }
+
+    // Only ever tops up. Lowering the slider lets the surplus die off on
+    // its own schedule instead of culling groups mid-life, which would
+    // pop them off screen — they drain out through the usual decay.
+    function topUpEntities() {
+      while (entities.length < targetEntities()) {
+        const r = rng();
+        entities.push(spawnEntity(r < 0.3 ? 'bar' : r < 0.55 ? 'shape' : 'block'));
+      }
+    }
+
+    /* ---------------------------------------------------------------
+       Message layout. `revealed` skips the animation and drops the word
+       in already settled — used when the grid is rebuilt underneath an
+       existing message, so it survives a resize without replaying.
+
+       Text that outruns the grid wraps onto further lines, and `//` puts
+       a break wherever you want one. Wrapping is done at layout time
+       rather than stored, so the same text re-flows when the grid is
+       reshaped: a message written wide reads as several lines when the
+       cells grow, without being retyped.
+    --------------------------------------------------------------- */
+
+    // Greedy word wrap. A word with nowhere to fit is broken rather than
+    // allowed to overhang, since a large letter off the edge is just gone.
+    function wrapWords(text, room) {
+      const out = [];
+      let line = '';
+      for (const word of text.split(/\s+/)) {
+        if (!word) continue;
+        if (!line) line = word;
+        else if (line.length + 1 + word.length <= room) line += ' ' + word;
+        else { out.push(line); line = word; }
+
+        while (line.length > room) {
+          out.push(line.slice(0, room));
+          line = line.slice(room);
+        }
+      }
+      if (line) out.push(line);
+      return out;
+    }
+
+    function layoutMessage(text, revealed) {
+      const large = msgFormat.value === 'large';
+      // A large letter eats six columns, so far fewer of them fit.
+      const room = large
+        ? Math.max(1, Math.floor((cols - 2 + GLYPH_GAP) / GLYPH_ADV))
+        : Math.max(1, cols - 2);
+
+      const raw = (text || '').toUpperCase();
+      // Explicit breaks first, then each segment wrapped to what is left.
+      const wanted = [];
+      for (const seg of raw.split('//')) {
+        for (const line of wrapWords(seg, room)) wanted.push(line);
+      }
+
+      const glyphH = large ? GLYPH_H : 1;
+      const adv = glyphH + (large ? MSG_LINE_GAP : 0);
+      // Lines past what the grid is tall are dropped, not scrolled.
+      const maxLines = Math.max(1, Math.floor((rows - glyphH) / adv) + 1);
+      const text_lines = wanted.slice(0, maxLines);
+      if (!text_lines.length) { message = null; return; }
+
+      const total = text_lines.reduce((n, s) => n + s.length, 0);
+      // The roll crosses the whole message as one gesture, so a long one
+      // tightens its stagger instead of taking a minute to arrive. Short
+      // messages are under the cap and keep their original timing exactly.
+      const stagger = Math.min(MSG_STAGGER, MSG_ROLL / Math.max(1, total - 1));
+
+      const blockH = (text_lines.length - 1) * adv + glyphH;
+      const top = Math.max(0, (rows - blockH) >> 1);
+
+      let idx = 0;
+      const lines = text_lines.map((s, li) => {
+        const span = large ? s.length * GLYPH_ADV - GLYPH_GAP : s.length;
+        return {
+          // Each line is centred on its own width, so ragged wrapping
+          // reads as centred text rather than a left-aligned block.
+          x0: Math.max(0, (cols - span) >> 1),
+          y: top + li * adv,
+          span,
+          letters: [...s].map((ch) => {
+            const k = idx++;
+            return {
+              target: ch,
+              idx: k,             // position in the whole message, not the line
+              startAt: k * stagger,
+              jit: hash2(k, 5, 9),  // staggers its exit, so the word frays away
+              rows: FONT[ch] || FONT[' ']
+            };
+          })
+        };
+      });
+
+      // Large letters need the extra beats for the per-cell stagger and
+      // for their spare cells to fall away afterwards.
+      const endAt = (total - 1) * stagger + MSG_SCRAMBLE
+        + (large ? MSG_CELL_SPREAD + MSG_CLEAR : 0);
+
+      // Row -> line lookup. The composite runs this per cell, so it wants
+      // one array read to reject the rows the message isn't on.
+      const lineOf = new Int16Array(rows).fill(-1);
+      const rowIn = new Int16Array(rows);
+      lines.forEach((L, li) => {
+        for (let r = 0; r < glyphH; r++) {
+          const gy = L.y + r;
+          if (gy >= 0 && gy < rows) { lineOf[gy] = li; rowIn[gy] = r; }
+        }
+      });
+
+      message = {
+        large,
+        text: raw,        // kept unwrapped, so a reshape re-flows it
+        lines,
+        lineOf,
+        rowIn,
+        endAt,
+        t: revealed ? endAt : 0,
+        step: 0
+      };
+    }
+
+    /* --- Compose and flush --------------------------------------- */
+
+    function composite() {
+      coverOn.fill(0);
+      for (const e of entities) stampEntity(e);
+
+      // A stale snapshot (the grid was reshaped mid-sweep) can't be indexed
+      // against the new arrays, so drop it rather than mismatch.
+      if (wipe && wipe.bg.length !== base.length) wipe = null;
+      const panelDiag = Math.max(1, panelCols + rows - 2);
+      const chroma = chromaAmount();
+
+      for (let i = 0; i < base.length; i++) {
+        const b = base[i];
+        const on = coverOn[i];
+        let bg = on ? coverBg[i] : (b.bg || C.paper);
+        let fill = on ? null : b.fill;
+        let fg = on ? coverFg[i] : (b.fg || C.dark);
+        let char = suppressesChar(fill) ? '' : (on ? coverChar[i] : b.char);
+        let ui = 0;   // set by the message and panel layers below
+
+        if (wipe) {
+          const x = i % cols, y = (i / cols) | 0;
+          // Whichever arrival this sweep drew; resolved once at its start
+          // so the front keeps its shape even if the control moves.
+          const arrive = wipe.at(x, y) * WIPE_SWEEP;
+          const p = (wipe.t - arrive) / WIPE_HOLD;
+
+          if (p < 0) {
+            // Not reached yet: hold the outgoing image exactly as it was.
+            bg = wipe.bg[i]; fill = wipe.fill[i];
+            fg = wipe.fg[i]; char = wipe.char[i];
+          } else if (p < 1) {
+            // In the band. The grain term ragged-edges the trailing side,
+            // and the floor guarantees every cell shows the sweep at all
+            // rather than low-grain cells snapping straight through.
+            const grain = 0.35 + fbm(x * 0.22, y * 0.22, 7) * 0.65;
+            if (grain > p) {
+              bg = C.dark;
+              fill = null;
+              fg = C.light + INK_FADE[p > 0.66 ? 2 : p > 0.33 ? 1 : 0];
+              char = WIPE_SEQ[(wipe.step + x + y) % WIPE_SEQ.length];
+            }
+          }
+          // Past the hold: fall through to the live values already set.
+        }
+
+        // Applied here so it colours the artwork and the regenerate sweep,
+        // but not the message or the panel below — those are UI surfaces
+        // and shouldn't drift with position.
+        if (chroma) {
+          const x = i % cols;
+          bg = chromaShift(bg, x, chroma);
+          fg = chromaShift(fg, x, chroma);
+        }
+
+        // Typed message. The row lookup rejects every cell the message
+        // isn't on — nearly all of them — in a single array read.
+        if (message) {
+          const li = message.lineOf[(i / cols) | 0];
+          if (li >= 0) {
+            const LN = message.lines[li];
+            const ly = message.rowIn[(i / cols) | 0];
+            const dx = (i % cols) - LN.x0;
+            // Large letters span GLYPH_ADV columns; inline ones sit in a
+            // single cell, which is the same arithmetic with a stride of 1.
+            const k = message.large ? (dx / GLYPH_ADV) | 0 : dx;
+            const lx = message.large ? dx - k * GLYPH_ADV : 0;
+            // lx === GLYPH_W is the gap column between large letters.
+            if (dx >= 0 && k < LN.letters.length && lx < GLYPH_W) {
+              const L = LN.letters[k];
+              const life = decaySeconds();
+              const gone = life > 0 &&
+                message.t >= message.endAt + life + L.jit * MSG_FADE_SPREAD;
+              // Column within the whole message, so two lines that happen
+              // to sit at the same offset don't churn in lockstep.
+              const gx = L.idx * GLYPH_ADV + lx;
+
+              if (message.large) {
+                // Every cell in the block gets its own start, so the letter
+                // assembles cell by cell rather than the whole box lighting.
+                const age = message.t - L.startAt
+                  - hash2(lx, ly, 23) * MSG_CELL_SPREAD;
+
+                if (age >= 0 && !gone) {
+                  if (age < MSG_SCRAMBLE) {
+                    // Whole block churns before anything resolves.
+                    bg = C.msgBg; fill = null; fg = C.msgInk; ui = 2;
+                    char = SCRAMBLE[Math.floor(
+                      hash2(gx, message.step + ly, 3) * SCRAMBLE.length)];
+                  } else if (L.rows[ly].charCodeAt(lx) === 35) {
+                    // Stroke cell: a solid block of ink, no glyph.
+                    bg = C.msgInk; fill = null; fg = C.msgBg; char = ''; ui = 2;
+                  } else if ((age - MSG_SCRAMBLE) / MSG_CLEAR < hash2(gx, ly, 17)) {
+                    // Spare cell still falling away — jittered so the letter
+                    // emerges out of the block rather than being stamped.
+                    bg = C.msgBg; fill = null; fg = C.msgInk; char = ''; ui = 2;
+                  }
+                }
+              } else {
+                const age = message.t - L.startAt;
+                if (age >= 0 && !gone) {
+                  bg = C.msgBg;
+                  fill = null;
+                  fg = C.msgInk;
+                  ui = 2;
+                  char = age < MSG_SCRAMBLE
+                    // Hashed on the frame step so the churn is random-looking
+                    // but stable within a frame — otherwise it would tear.
+                    ? SCRAMBLE[Math.floor(hash2(gx, message.step, 3) * SCRAMBLE.length)]
+                    : (L.target === ' ' ? '' : L.target);
+                }
+              }
+            }
+          }
+        }
+
+        // The panel block is laid last so it covers everything else,
+        // including a sweep in progress.
+        if (panelCols > 0 && (panelOpen || panelAnim)) {
+          const x = i % cols;
+          if (x < panelCols) {
+            const y = (i / cols) | 0;
+            const arrive = ((x + y) / panelDiag) * PANEL_SWEEP;
+
+            // `since` is how long this cell has been laid when building,
+            // or how long until it is lifted when clearing — either way
+            // small means "at the front", which is where the sequence runs.
+            let covered, since;
+            if (!panelAnim) {
+              covered = panelOpen;
+              since = Infinity;
+            } else if (panelAnim.dir > 0) {
+              covered = panelAnim.t >= arrive;
+              since = panelAnim.t - arrive;
+            } else {
+              covered = panelAnim.t < arrive;
+              since = arrive - panelAnim.t;
+            }
+
+            if (covered) {
+              bg = C.panelBg;
+              fill = null;
+              fg = C.panelFg;
+              ui = 1;
+              char = since < PANEL_TRAIL
+                ? WIPE_SEQ[(panelAnim.step + x + y) % WIPE_SEQ.length]
+                : '';
+            }
+          }
+        }
+
+        postBg[i] = bg;
+        postFill[i] = fill;
+        postFg[i] = fg;
+        postChar[i] = char;
+        postUi[i] = ui;
+      }
+
+      /* Second pass: the channel split samples sideways, so it can only
+         run once every cell's colour is resolved. The panel is always
+         exempt — a fringed control panel reads as a rendering fault, not
+         style — while the message is exempt only if you ask for it, since
+         fringed text is a legitimate thing to want. */
+      const d = splitCells();
+
+      if (d) {
+        const keepMsg = msgSplitInput.value !== 'apply';
+        for (let i = 0; i < postUi.length; i++) {
+          const u = postUi[i];
+          splitGuard[i] = (u === 1 || (u === 2 && keepMsg)) ? 1 : 0;
+        }
+      }
+
+      for (let i = 0; i < base.length; i++) {
+        let bg = postBg[i], fg = postFg[i];
+        if (d && !splitGuard[i]) {
+          bg = splitRGB(postBg, i, d, splitGuard);
+          fg = splitRGB(postFg, i, d, splitGuard);
+        }
+        const fill = postFill[i], char = postChar[i];
+
+        if (bg !== viewBg[i]) { els[i].style.backgroundColor = bg; viewBg[i] = bg; }
+        if (fill !== viewFill[i]) {
+          if (fill) {
+            els[i].style.backgroundImage = fill.image;
+            els[i].style.backgroundSize = `${fill.size}px ${fill.size}px`;
+            const x = i % cols, y = (i / cols) | 0;
+            els[i].style.backgroundPosition =
+              `${-(x * cellW).toFixed(2)}px ${-(y * cellH).toFixed(2)}px`;
+          } else {
+            els[i].style.backgroundImage = 'none';
+          }
+          viewFill[i] = fill;
+        }
+        if (fg !== viewFg[i]) { els[i].style.color = fg; viewFg[i] = fg; }
+        if (char !== viewChar[i]) { setContent(i, char); viewChar[i] = char; }
+      }
+    }
+
+    // A sequence frame is either typed or drawn. When a cell is already
+    // holding the arrow, spin it by rewriting one attribute — reparsing
+    // the markup on every step would be the expensive way to rotate.
+    function setContent(i, token) {
+      const angle = ARROW_ANGLE.get(token);
+      if (angle === undefined) {
+        els[i].textContent = token; // also clears any svg that was there
+        viewSvg[i] = false;
+      } else if (viewSvg[i] && els[i].firstElementChild) {
+        els[i].firstElementChild.firstElementChild
+          .setAttribute('transform', `rotate(${angle})`);
+      } else {
+        els[i].innerHTML = ARROW_SVG.get(token);
+        viewSvg[i] = true;
+      }
+    }
+
+    function buildDom() {
+      const frag = document.createDocumentFragment();
+      const fontSize = Math.round(Math.min(cellW, cellH) * 0.55);
+      els = new Array(cols * rows);
+
+      for (let i = 0; i < cols * rows; i++) {
+        const el = document.createElement('div');
+        el.className = 'cell';
+        el.style.fontSize = fontSize + 'px';
+        els[i] = el;
+        frag.appendChild(el);
+      }
+
+      grid.innerHTML = '';
+      grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+      grid.appendChild(frag);
+    }
+
+    function generate() {
+      reseed();   // same seed, same poster
+
+      const target = +cellSizeInput.value;
+      cols = Math.max(8, Math.round(window.innerWidth / target));
+      rows = Math.max(6, Math.round(window.innerHeight / target));
+      cellW = window.innerWidth / cols;
+      cellH = window.innerHeight / rows;
+
+      // Snap the panel to whole columns and match the DOM to them exactly,
+      // so the controls line up with the cell block that backs them.
+      // One column past what the width alone asks for, so the controls
+      // have a margin of block to sit on rather than meeting the edge.
+      panelCols = Math.max(1, Math.min(cols - 2, Math.round(PANEL_PX / cellW) + 1));
+      syncPanelGeometry();
+
+      const n = cols * rows;
+      base = Array.from({ length: n }, blank);
+      entities = [];
+      painted.clear();      // indices refer to the old grid
+      stroke = [];          // likewise
+      chromaCache.clear();  // keys are column indices, and cols just changed
+
+      viewBg = new Array(n).fill(undefined);
+      viewFill = new Array(n).fill(undefined);
+      viewChar = new Array(n).fill(undefined);
+      viewFg = new Array(n).fill(undefined);
+      viewSvg = new Array(n).fill(false);
+      coverBg = new Array(n);
+      coverChar = new Array(n);
+      coverFg = new Array(n);
+      coverOn = new Uint8Array(n);
+      postBg = new Array(n);
+      postFill = new Array(n);
+      postFg = new Array(n);
+      postChar = new Array(n);
+      postUi = new Uint8Array(n);
+      splitGuard = new Uint8Array(n);
+
+      // The picture is re-screened at the new grid rather than scaled,
+      // so the halftone stays one dot per cell at every size.
+      samplePhoto();
+
+      buildFields();
+      // A photo *is* the composition; bars would only sit on top of it.
+      if (!photo) buildBars();
+      buildDom();
+
+      // Stagger ages so the first frame isn't a synchronised bloom.
+      topUpEntities();
+      for (const e of entities) e.age = rand(0, e.life * 0.6);
+
+      // Re-centre an existing message on the new grid, already revealed.
+      if (message) layoutMessage(message.text, true);
+
+      composite();
+    }
+
+    // Freeze what is on screen, then build the replacement behind it. The
+    // slice has to happen before generate(), which swaps the view arrays
+    // for fresh ones — and generate's own composite() already draws
+    // through the wipe, so the new image never flashes up first.
+    function startRegenerate() {
+      // Random draws a fresh front each time; anything else pins it.
+      // Deliberately off the seeded stream: generate() reseeds immediately
+      // after this, so a seeded draw would restart from the same state and
+      // hand back the same front forever. The transition isn't part of the
+      // composition anyway — it's how you got there, not what you got.
+      const choice = wipeInput.value;
+      const name = choice === 'random'
+        ? WIPE_NAMES[Math.floor(Math.random() * WIPE_NAMES.length)]
+        : choice;
+
+      wipe = {
+        t: 0,
+        step: 0,
+        at: ARRIVALS[name] || ARRIVALS.diagonal,
+        bg: viewBg.slice(),
+        fill: viewFill.slice(),
+        char: viewChar.slice(),
+        fg: viewFg.slice()
+      };
+      generate();
+    }
+
+    /* ---------------------------------------------------------------
+       Permalink. Everything that decides what you are looking at — the
+       seed and every control — round-trips through the URL hash, so a
+       composition you like can be kept or handed to someone else. The
+       one thing that can't ride along is a dropped picture: it stays
+       local to the tab.
+
+       Defaults are omitted, so a bare share of an untouched canvas is
+       just `#seed=…` rather than a wall of parameters.
+    --------------------------------------------------------------- */
+    const URL_FIELDS = {
+      palette: paletteInput, size: cellSizeInput, speed: speedInput,
+      density: densityInput, scale: scaleInput, chroma: chromaInput,
+      split: splitInput, decay: decayInput, trail: trailInput,
+      wipe: wipeInput, msgsplit: msgSplitInput, fmt: msgFormat, msg: msgText
+    };
+
+    // Captured before any URL is applied, so "default" means the markup's
+    // value rather than whatever the last link happened to set.
+    const URL_DEFAULTS = Object.fromEntries(
+      Object.entries(URL_FIELDS).map(([k, el]) => [k, el.value]));
+
+    // The last hash this page wrote, so the hashchange listener can tell
+    // an edit in the address bar from its own echo.
+    let lastHash = null;
+
+    function writeUrl() {
+      const p = new URLSearchParams();
+      p.set('seed', String(seed));
+      for (const [k, el] of Object.entries(URL_FIELDS)) {
+        if (el.value !== URL_DEFAULTS[k]) p.set(k, el.value);
+      }
+      const hash = '#' + p.toString();
+      lastHash = hash;
+      try {
+        history.replaceState(null, '', hash);
+      } catch {
+        // A page opened straight off disk has an opaque origin, and
+        // replaceState refuses to write a URL into one. Assigning the hash
+        // still works; it just leaves history entries behind.
+        if (location.hash !== hash) location.hash = hash;
+      }
+    }
+
+    function readUrl() {
+      const p = new URLSearchParams(location.hash.slice(1));
+      const s = parseInt(p.get('seed'), 10);
+      if (Number.isFinite(s)) seed = s >>> 0;
+
+      for (const [k, el] of Object.entries(URL_FIELDS)) {
+        const v = p.get(k);
+        // Absent means default rather than "leave alone": the hash is the
+        // whole description of the state, so a parameter someone deleted
+        // has to reset the control instead of lingering on the old value.
+        const next = v === null ? URL_DEFAULTS[k] : v;
+        // A select handed an unknown value goes to selectedIndex -1, which
+        // would break the custom dropdown that reads from it. Ignore those.
+        if (el.tagName === 'SELECT' &&
+            ![...el.options].some((o) => o.value === next)) continue;
+        el.value = next;
+      }
+    }
+
+    // Slider drags fire continuously, so coalesce rather than rewriting
+    // the address bar on every pixel of travel.
+    let urlTimeout;
+    const writeUrlSoon = () => {
+      clearTimeout(urlTimeout);
+      urlTimeout = setTimeout(writeUrl, 250);
+    };
+
+    readUrl();
+    applyPalette(paletteInput.value);
+    generate();
+    sizeVal.textContent = cellSizeInput.value;
+    writeUrl();
+
+    // A link carrying text reveals it on arrival rather than dropping it
+    // in settled, so opening a share plays the animation it was made for.
+    if (msgText.value) layoutMessage(msgText.value, false);
+
+    // Any control that moves is part of what a link describes. Both events
+    // bubble, so one pair of listeners covers the whole panel.
+    panel.addEventListener('input', writeUrlSoon);
+    panel.addEventListener('change', writeUrlSoon);
+
+    // Build the panel block on load rather than snapping it in, so the
+    // first thing you see is the same effect the toggle plays.
+    panelAnim = { t: 0, step: 0, dir: 1 };
+
+    paletteInput.addEventListener('change', () => {
+      wipe = null;
+      applyPalette(paletteInput.value);
+      generate();   // colours are baked into base and entities at build time
+    });
+
+    // Changing the cell size reshapes the grid, so both of these need a
+    // full rebuild — debounced, since dragging a slider fires constantly.
+    let rebuildTimeout;
+    const rebuildSoon = (delay) => {
+      clearTimeout(rebuildTimeout);
+      rebuildTimeout = setTimeout(() => { wipe = null; generate(); }, delay);
+    };
+
+    window.addEventListener('resize', () => rebuildSoon(150));
+
+    cellSizeInput.addEventListener('input', () => {
+      sizeVal.textContent = cellSizeInput.value;
+      rebuildSoon(120);
+    });
+
+    const syncDecay = () => {
+      decayVal.textContent = decaySeconds() === 0 ? 'off' : decaySeconds() + 's';
+    };
+    decayInput.addEventListener('input', syncDecay);
+    syncDecay();
+
+    const syncDensity = () => { densityVal.textContent = densityInput.value; };
+    densityInput.addEventListener('input', syncDensity);
+    syncDensity();   // keeps the readout honest if the default ever changes
+
+    const syncScale = () => { scaleVal.textContent = sizeScale().toFixed(1) + '×'; };
+    scaleInput.addEventListener('input', syncScale);
+    syncScale();
+
+    const syncChroma = () => {
+      chromaVal.textContent = chromaInput.value === '0' ? 'off' : chromaInput.value + '%';
+      // Entries are keyed by colour and column only, so a new amount
+      // would otherwise keep serving shifts computed at the old one.
+      chromaCache.clear();
+      composite();
+    };
+    chromaInput.addEventListener('input', syncChroma);
+    syncChroma();
+
+    const syncSplit = () => {
+      splitVal.textContent = splitInput.value === '0' ? 'off' : splitInput.value + 'c';
+      composite();
+    };
+    splitInput.addEventListener('input', syncSplit);
+    syncSplit();
+
+    // Nothing to recompute — the flag is read straight out of the second
+    // pass — so it only needs the frame drawn again.
+    msgSplitInput.addEventListener('change', composite);
+
+    /* ---------------------------------------------------------------
+       The hash is read on every change, not only at load: edit it in the
+       address bar — swap the message, bump the seed, change the palette —
+       and the canvas follows. That makes a link a live description of the
+       state rather than a one-shot import, and it is what lets someone
+       hand-modify a shared URL instead of hunting for the control.
+    --------------------------------------------------------------- */
+    function applyUrlState() {
+      const was = { seed };
+      for (const k in URL_FIELDS) was[k] = URL_FIELDS[k].value;
+
+      readUrl();
+      const changed = (k) => URL_FIELDS[k].value !== was[k];
+
+      // Custom dropdowns hold their own label; the readouts likewise.
+      for (const el of Object.values(URL_FIELDS)) if (el.syncUi) el.syncUi();
+      // A link describes the controls directly, so no preset name applies.
+      presetInput.value = 'custom';
+      if (presetInput.syncUi) presetInput.syncUi();
+      sizeVal.textContent = cellSizeInput.value;
+      syncDecay();
+      syncDensity();
+      syncScale();
+
+      if (changed('palette')) applyPalette(paletteInput.value);
+
+      // Seed, palette and cell size are all baked into the base layer at
+      // build time, so any of them means laying the poster again. The rest
+      // are read live by the ticker and need no rebuild.
+      if (seed !== was.seed || changed('palette') || changed('size')) {
+        wipe = null;
+        generate();
+      }
+
+      // Replay rather than drop it in settled: an edited link should show
+      // the reveal, the same as arriving on one.
+      if (changed('msg') || changed('fmt')) layoutMessage(msgText.value, false);
+
+      // Both end in a composite, which also flushes any re-laid message.
+      syncChroma();
+      syncSplit();
+    }
+
+    window.addEventListener('hashchange', () => {
+      // Our own writes come back through here on the location.hash
+      // fallback path, and re-applying them would fight the controls.
+      if (location.hash === lastHash) return;
+      applyUrlState();
+    });
+
+    /* ---------------------------------------------------------------
+       Presets: a set of control values applied at once, with no state of
+       their own. That is why they don't ride in the URL — what they set
+       already does, and a stored name would only go stale the first time
+       someone nudged a slider.
+    --------------------------------------------------------------- */
+    const PRESETS = {
+      poster:     { size: 26, speed: 100, density: 7,  scale: 100, chroma: 0,  split: 0, decay: 3 },
+      // Split stays off here: at this density every cell already borders
+      // a different colour, so fringing them all is noise rather than
+      // effect. Aberration is the preset that owns that.
+      storm:      { size: 20, speed: 165, density: 18, scale: 80,  chroma: 0,  split: 0, decay: 1.5 },
+      minimal:    { size: 34, speed: 55,  density: 3,  scale: 160, chroma: 0,  split: 0, decay: 5 },
+      aberration: { size: 26, speed: 85,  density: 9,  scale: 120, chroma: 70, split: 3, decay: 3 }
+    };
+
+    // Only the controls a preset actually sets; a preset shouldn't be
+    // invalidated by typing a message or picking a brush.
+    const PRESET_CONTROLS = new Set(
+      ['size', 'speed', 'density', 'scale', 'chroma', 'split', 'decay']
+        .map((k) => URL_FIELDS[k]));
+
+    presetInput.addEventListener('change', () => {
+      const p = PRESETS[presetInput.value];
+      if (!p) return;
+
+      for (const [k, v] of Object.entries(p)) URL_FIELDS[k].value = v;
+      sizeVal.textContent = cellSizeInput.value;
+      syncDecay();
+      syncDensity();
+      syncScale();
+      syncChroma();
+      syncSplit();
+
+      // Cell size is in there, which reshapes the grid — and arriving
+      // through the sweep suits a wholesale change better than a cut.
+      startRegenerate();
+      writeUrl();
+    });
+
+    // Moving one of those controls by hand means the shown preset no
+    // longer describes what you are looking at, so stop claiming it does.
+    const dropPreset = (e) => {
+      if (presetInput.value === 'custom' || !PRESET_CONTROLS.has(e.target)) return;
+      presetInput.value = 'custom';
+      if (presetInput.syncUi) presetInput.syncUi();
+    };
+    panel.addEventListener('input', dropPreset);
+    panel.addEventListener('change', dropPreset);
+
+    // Regenerate is now literally "roll a new number". Everything else
+    // that rebuilds — resize, cell size, palette — deliberately keeps the
+    // seed, so those are the same composition seen differently.
+    document.getElementById('regen').addEventListener('click', () => {
+      seed = (Math.random() * 0x100000000) >>> 0;
+      startRegenerate();
+      writeUrl();
+    });
+
+    /* ---------------------------------------------------------------
+       Loading a picture. Decoded once and kept; generate() re-screens it
+       whenever the grid changes. It arrives through the regenerate sweep
+       rather than a cut, so the halftone is laid down by the same
+       diagonal front everything else uses.
+    --------------------------------------------------------------- */
+    const imgBtn = document.getElementById('imgBtn');
+    const imgFile = document.getElementById('imgFile');
+
+    const syncImage = () => {
+      imgBtn.textContent = photoSrc ? 'Clear Image' : 'Load Image';
+    };
+
+    function loadImageFile(file) {
+      if (!file || !file.type.startsWith('image/')) return;
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        photoSrc = img;
+        startRegenerate();
+        syncImage();
+      };
+      img.onerror = () => URL.revokeObjectURL(url);
+      img.src = url;
+    }
+
+    imgBtn.addEventListener('click', () => {
+      if (photoSrc) {
+        photoSrc = null;
+        photo = null;
+        startRegenerate();
+        syncImage();
+      } else {
+        imgFile.click();
+      }
+    });
+
+    imgFile.addEventListener('change', () => {
+      loadImageFile(imgFile.files[0]);
+      imgFile.value = '';   // so the same file can be picked again
+    });
+
+    // Drop anywhere. dragleave fires when crossing between cells too, so
+    // the frame is cleared on the window boundary rather than per element.
+    const setDropping = (on) => document.body.classList.toggle('dropping', on);
+
+    window.addEventListener('dragover', (e) => { e.preventDefault(); setDropping(true); });
+    window.addEventListener('dragleave', (e) => { if (!e.relatedTarget) setDropping(false); });
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      setDropping(false);
+      loadImageFile(e.dataTransfer.files[0]);
+    });
+
+    syncImage();
+
+    /* --- Share --------------------------------------------------- */
+
+    const shareBtn = document.getElementById('share');
+
+    // execCommand is deprecated but still the only path when the async
+    // clipboard is refused — which happens for a page opened straight off
+    // disk, and this is a single file meant to be opened that way. The
+    // fallback runs on rejection as well as absence: the API being
+    // present is no promise that it will let you write.
+    function legacyCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok ? Promise.resolve() : Promise.reject(new Error('copy refused'));
+    }
+
+    function copyText(text) {
+      if (!navigator.clipboard) return legacyCopy(text);
+      return navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
+    }
+
+    let shareTimeout;
+    shareBtn.addEventListener('click', () => {
+      writeUrl();   // flush any drag still sitting in the debounce
+      copyText(location.href)
+        .then(() => { shareBtn.textContent = 'Copied!'; })
+        .catch(() => { shareBtn.textContent = 'Copy failed'; })
+        .finally(() => {
+          clearTimeout(shareTimeout);
+          shareTimeout = setTimeout(() => { shareBtn.textContent = 'Share Link'; }, 1400);
+        });
+    });
+
+    /* ---------------------------------------------------------------
+       Ticker. Runs at a fixed step rather than per-frame: the grid is
+       chunky, and stepping it mechanically suits the poster better than
+       smooth interpolation.
+    --------------------------------------------------------------- */
+    const animBtn = document.getElementById('anim');
+    const STEP = 1 / 18;
+    let animating = true;
+    let lastTs = 0, accumulator = 0;
+
+    function tick(ts) {
+      requestAnimationFrame(tick);
+
+      const raw = lastTs ? (ts - lastTs) / 1000 : 0;
+      lastTs = ts;
+      // Ceiling so a backgrounded tab doesn't fast-forward on return;
+      // floor because a timestamp that ever went backwards would drive
+      // the whole artwork in reverse rather than simply stalling it.
+      const dt = Math.max(0, Math.min(0.25, raw));
+
+      let stepped = false;
+      if (animating) {
+        const scale = speedInput.value / 100;
+        accumulator += dt * scale;
+        clock += dt * scale;
+
+        while (accumulator >= STEP) {
+          accumulator -= STEP;
+          entities = entities.filter((e) => updateEntity(e, STEP));
+          topUpEntities();
+          stepped = true;
+        }
+
+        // Hand expired painted cells back to the composition. Tied to the
+        // artwork clock rather than wall time, so pausing holds a drawing
+        // in place instead of eating it while you look at it.
+        const life = decaySeconds();
+        if (life > 0) {
+          for (const [i, rec] of painted) {
+            if (clock - rec.at >= life + rec.jit * PAINT_SPREAD) {
+              Object.assign(base[i], rec.prev);
+              painted.delete(i);
+              stepped = true;
+            }
+          }
+        }
+      }
+
+      // The sweep runs on real time, off the speed slider and outside the
+      // pause: it is a UI transition, not part of the artwork's motion, and
+      // scaling it would let Pause or speed 0 strand it half way across.
+      if (wipe) {
+        wipe.t += dt;
+        wipe.step = Math.floor(wipe.t * 12);
+        if (wipe.t > WIPE_SWEEP + WIPE_HOLD) wipe = null;
+        stepped = true;
+      }
+
+      // Message reveal, also real time — it is a response to a button
+      // press. Once revealed it only keeps ticking if decay is armed, so
+      // a permanent message costs no frames; arming the slider later
+      // simply resumes the clock and the word starts to fray.
+      if (message) {
+        const life = decaySeconds();
+        if (life > 0 && message.t > message.endAt + life + MSG_FADE_SPREAD) {
+          // Rewind rather than clear: once it has decayed away the whole
+          // reveal plays again. Decay 0 holds it instead, and an empty
+          // input is still what removes it for good.
+          message.t = 0;
+          message.step = 0;
+          stepped = true;
+        } else if (message.t < message.endAt || life > 0) {
+          message.t += dt;
+          message.step = Math.floor(message.t * MSG_CHURN);
+          stepped = true;
+        }
+      }
+
+      // Panel build/clear, likewise on real time.
+      if (panelAnim) {
+        panelAnim.t += dt;
+        panelAnim.step = Math.floor(panelAnim.t * 12);
+        if (panelAnim.t > PANEL_SWEEP + PANEL_TRAIL) {
+          const built = panelAnim.dir > 0;
+          panelAnim = null;
+          panelOpen = built;
+          syncPanelGeometry();
+          // Controls only arrive once the block beneath them is complete.
+          if (built) panel.classList.add('visible');
+        }
+        stepped = true;
+      }
+
+      if (stepped) composite();
+    }
+    requestAnimationFrame(tick);
+
+    animBtn.addEventListener('click', () => {
+      animating = !animating;
+      animBtn.textContent = animating ? 'Pause' : 'Play';
+    });
+
+    /* Swaps a native <select> for a styleable stand-in. The original is
+       kept in the DOM as the source of truth — hidden, not removed — so
+       `.value` reads and `change` listeners elsewhere keep working. */
+    function enhanceSelect(sel) {
+      const wrap = document.createElement('div');
+      wrap.className = 'sel';
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'sel-btn';
+      btn.setAttribute('aria-haspopup', 'listbox');
+      btn.setAttribute('aria-expanded', 'false');
+
+      const label = document.createElement('span');
+      const caret = document.createElement('span');
+      caret.className = 'sel-caret';
+      caret.textContent = '▼';
+      btn.append(label, caret);
+
+      const list = document.createElement('div');
+      list.className = 'sel-list';
+      list.setAttribute('role', 'listbox');
+
+      const close = () => {
+        wrap.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+      };
+
+      const sync = () => {
+        label.textContent = sel.options[sel.selectedIndex].textContent;
+        [...list.children].forEach((row, i) =>
+          row.classList.toggle('selected', i === sel.selectedIndex));
+      };
+
+      [...sel.options].forEach((opt) => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'sel-option';
+        row.setAttribute('role', 'option');
+        row.textContent = opt.textContent;
+        row.addEventListener('click', () => {
+          sel.value = opt.value;
+          // Re-dispatch so the existing palette / fill handlers still fire.
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+          close();
+        });
+        list.appendChild(row);
+      });
+
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = wrap.classList.toggle('open');
+        btn.setAttribute('aria-expanded', String(open));
+      });
+      document.addEventListener('click', close);
+
+      sel.parentNode.insertBefore(wrap, sel);
+      wrap.append(btn, list);
+      sel.classList.add('sr-only');
+      sel.addEventListener('change', sync);
+      // Exposed so state pushed in from outside — a hash edit — can
+      // refresh the visible label without dispatching a `change` and
+      // setting off every handler listening for a real user choice.
+      sel.syncUi = sync;
+      sync();
+    }
+
+    enhanceSelect(paletteInput);
+    enhanceSelect(fillModeInput);
+    enhanceSelect(presetInput);
+    enhanceSelect(brushInput);
+    enhanceSelect(trailInput);
+    enhanceSelect(wipeInput);
+    enhanceSelect(msgSplitInput);
+    enhanceSelect(msgFormat);
+
+    // The typed glyph is meaningless while a shape brush is selected, so
+    // dim it rather than leaving a control that silently does nothing.
+    const syncBrush = () => {
+      const shape = !!brushInput.value;
+      cellCharInput.disabled = shape;
+      cellCharInput.style.opacity = shape ? 0.4 : 1;
+    };
+    brushInput.addEventListener('change', syncBrush);
+    syncBrush();
+
+    /* --- Message ------------------------------------------------- */
+
+    // Reuse the drawn arrow rather than a glyph, so the button carries the
+    // same mark the brush does. It strokes in currentColor and so themes.
+    msgGo.innerHTML = ARROW_SVG.get('svg:90');
+
+    const revealMessage = () => {
+      layoutMessage(msgText.value, false);   // empty input clears it
+      composite();
+    };
+
+    msgGo.addEventListener('click', revealMessage);
+    msgText.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') revealMessage();
+    });
+
+    panelToggle.addEventListener('click', () => {
+      if (panelAnim) return;   // ignore clicks mid-sweep
+      if (panelOpen) {
+        // Controls go first, so they aren't left floating over bare canvas
+        // while the block underneath is being lifted.
+        panel.classList.remove('visible');
+        panelAnim = { t: 0, step: 0, dir: -1 };
+      } else {
+        panelAnim = { t: 0, step: 0, dir: 1 };
+        panelOpen = true;      // cells start being laid immediately
+      }
+      syncPanelGeometry();
+    });
+
+    /* --- Painting ------------------------------------------------ */
+    // Paints into the base layer, so edits survive entities passing over.
+
+    // Mix toward a target rather than scaling toward black, so the trail
+    // can sink either way. A blend and not an alpha: the cell stays
+    // opaque, so the composition behind never shows through a stroke.
+    function blend(hex, target, amount) {
+      if (!amount || !hex || hex.charCodeAt(0) !== 35) return hex;
+      const a = parseInt(hex.slice(1, 7), 16);
+      const b = parseInt(target.slice(1, 7), 16);
+      const mix = (sh) => {
+        const from = (a >> sh) & 255;
+        return clamp255(from + (((b >> sh) & 255) - from) * amount);
+      };
+      return '#' + hex2(mix(16)) + hex2(mix(8)) + hex2(mix(0)) + hex.slice(7);
+    }
+
+    // Where a fading cell is headed. Auto sinks it into the palette's own
+    // ground, which is what makes it recede on a dark canvas and on a pale
+    // one alike; the other two force the direction regardless of palette.
+    function trailTarget() {
+      const mode = trailInput.value;
+      return mode === 'dark' ? '#000000' : mode === 'light' ? '#ffffff' : C.paper;
+    }
+
+    // How far down the ramp a cell that many places behind the head sits.
+    function strokeLevel(depth) {
+      // The trail only makes sense as a preview of the decay that follows
+      // it. With Decay off nothing ever hands these cells back, so a faded
+      // tail would be a permanently half-erased stroke — on a pale palette
+      // it drops to about 1.4:1 against the ground and reads as gone. Keep
+      // the whole drag at full strength instead.
+      if (decaySeconds() === 0) return 0;
+      if (depth < STROKE_TAIL) return 0;
+      return Math.round(clamp01((depth - STROKE_TAIL) / STROKE_SPAN) * STROKE_STEPS);
+    }
+
+    /* Re-shades the tail after each new cell. Walks oldest to newest so a
+       drag that crosses its own path leaves the cell at its newest depth,
+       and only touches the window that can still be changing level —
+       anything further back reached the deepest shade already. */
+    function shadeStroke() {
+      const start = Math.max(0, stroke.length - (STROKE_TAIL + STROKE_SPAN + 1));
+      const to = trailTarget();
+
+      for (let k = start; k < stroke.length; k++) {
+        const i = stroke[k];
+        const rec = painted.get(i);
+        if (!rec) continue;             // decayed back out from under us
+
+        const lvl = strokeLevel(stroke.length - 1 - k);
+        if (rec.lvl === lvl) continue;  // nothing to redraw for this one
+        rec.lvl = lvl;
+
+        const amount = (lvl / STROKE_STEPS) * STROKE_FADE;
+        const bg = blend(rec.bg, to, amount);
+        const fg = blend(rec.fg, to, amount);
+        const m = base[i];
+        m.bg = bg;
+        m.fg = fg;
+        // The fill bakes its colour into a data-URI, so a shaded cell
+        // needs its pattern rebuilt rather than recoloured.
+        m.fill = rec.mode === 'dots'  ? dotFill(fg, 6, 1)
+               : rec.mode === 'hatch' ? hatchFill(fg, 8, 3)
+               : null;
+      }
+    }
+
+    function paintFromInputs(el) {
+      const i = els.indexOf(el);
+      if (i < 0) return;
+      const fg = textColorInput.value;
+      const mode = fillModeInput.value;
+
+      const m = base[i];
+
+      // Snapshot the untouched cell the first time it is painted — never
+      // on a repaint, or the "original" would become an earlier brush
+      // stroke and the cell could never find its way back.
+      const rec = painted.get(i);
+      const prev = rec ? rec.prev : { bg: m.bg, fill: m.fill, char: m.char, fg: m.fg };
+      const x = i % cols, y = (i / cols) | 0;
+      // Stored as a stamp plus a jitter rather than a deadline, so moving
+      // the Decay slider retimes strokes that are already on the canvas.
+      // bg/fg/mode are the colours as picked; shadeStroke derives the
+      // dimmed ones from these so re-shading never compounds.
+      painted.set(i, {
+        prev, at: clock, jit: fbm(x * 0.25, y * 0.25, 11),
+        bg: bgColorInput.value, fg, mode, lvl: -1
+      });
+
+      m.bg = bgColorInput.value;
+      m.fg = fg;
+      // A shape brush paints a drawn token; otherwise the typed glyph,
+      // sliced in case a paste got past the maxlength.
+      m.char = brushInput.value || cellCharInput.value.slice(0, 1);
+      m.fill = mode === 'dots'  ? dotFill(fg, 6, 1)
+             : mode === 'hatch' ? hatchFill(fg, 8, 3)
+             : null;
+      if (suppressesChar(m.fill)) m.char = '';
+
+      stroke.push(i);
+      shadeStroke();
+      composite();
+    }
+
+    let painting = false;
+    grid.addEventListener('mousedown', (e) => {
+      if (!e.target.classList.contains('cell')) return;
+      painting = true;
+      stroke = [];   // each drag trails on its own, not on the last one
+      paintFromInputs(e.target);
+      e.preventDefault();
+    });
+    grid.addEventListener('mouseover', (e) => {
+      if (painting && e.target.classList.contains('cell')) paintFromInputs(e.target);
+    });
+    // The shading stays where the drag left it; the Decay clock is what
+    // eventually hands these cells back to the composition.
+    window.addEventListener('mouseup', () => { painting = false; stroke = []; });
+  </script>
+</body>
+</html>
