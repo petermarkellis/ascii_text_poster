@@ -43,8 +43,8 @@ clears with the same diagonal sweep everything else uses.
 | Control | | |
 |---|---|---|
 | **Preset** | Poster · Storm · Minimal · Aberration | Sets the seven sliders below at once. Drops back to Custom the moment you move one of them. |
-| **Palette** | Pop · Noir · Blanc · Emerald | Every ink is chosen against its own ground, so each scheme stays legible rather than relying on fixed pairs. |
-| **Glow** | Auto · On · Off | Blooms each glyph in its own ink. **Auto** follows the palette, and only Emerald asks for it — saturated ink on a near-black ground is what neon *is*, whereas the same treatment on the grey schemes reads as a printing fault. The radius tracks the cell size. |
+| **Palette** | Pop · Noir · Blanc · Emerald · Ember · Gold · Cobalt | Every ink is chosen against its own ground, so each scheme stays legible rather than relying on fixed pairs. Four dark schemes (Noir grey, Emerald neon green, Ember neon orange, Cobalt blueprint blue) and three light ones (Pop colour, Blanc grey, Gold warm single-ink). |
+| **Glow** | Auto · On · Off | Blooms each glyph in its own ink. **Auto** follows the palette, and only Emerald and Ember ask for it — saturated ink on a near-black ground is what neon *is*, whereas the same treatment on the grey schemes reads as a printing fault. The radius tracks the cell size. |
 | **Size** | 16–56 | Target cell size in px. Reshapes the grid. |
 | **Speed** | 0–200 | Scales the artwork clock. Transitions ignore it — they're UI, not motion. |
 | **Density** | 0–20 | How many drifting groups stay alive. Lowering it lets the surplus die off naturally rather than culling mid-life. |
@@ -140,6 +140,12 @@ An image, a clip or the camera is the one thing that can't ride along — a sour
 stays local to the tab.
 
 ## How it works
+
+**Palettes fill identical slots**, so the composition logic never changes —
+only the values do. What keeps a scheme legible is that ink is picked *against a
+cell's own ground* rather than paired up in advance: `inkOnDark` and
+`inkOnLight` for entities, `inkFor()` for bars. Every reachable ink-and-ground
+combination across all seven palettes clears 1.6:1.
 
 **Two layers.** `base` is the still poster — recursive region splits, bars,
 anything hand-painted — and never animates. `entities` are the drifting groups

@@ -429,6 +429,9 @@
         <option value="noir">Noir</option>
         <option value="blanc">Blanc</option>
         <option value="emerald">Emerald</option>
+        <option value="ember">Ember</option>
+        <option value="gold">Gold</option>
+        <option value="cobalt">Cobalt</option>
       </select>
     </div>
 
@@ -779,10 +782,73 @@
         inkOnDark: ['#00ff9c', '#5cffc9', '#c7ffe9', '#00d68f'],
         inkOnLight: ['#04120c', '#0b3b2c', '#08402e'],
         paint: { bg: '#00ff9c', ink: '#04120c' },
-        // The only scheme that asks for a bloom by default. Saturated ink
-        // on a near-black ground is what neon *is*; the same treatment on
-        // the grey palettes just reads as a printing fault.
+        // Asks for a bloom by default, as Ember does. Saturated ink on a
+        // near-black ground is what neon *is*; the same treatment on the
+        // grey palettes just reads as a printing fault.
         glow: true
+      },
+
+      /* Emerald's sibling on the warm side: the same near-black grounds
+         and the same job for the brightest slots, but the ramp runs
+         through oxide reds into orange. The dark grounds are warm rather
+         than neutral, so the ink reads as heat coming off them rather
+         than as colour sitting on top. */
+      ember: {
+        label: 'Ember',
+        colors: {
+          paper: '#120806', white: '#0b0403', lilac: '#ff5a2e',
+          lightPink: '#ff8c42', pink: '#4d1a12', magenta: '#3d1410',
+          violet: '#5c1f13', indigo: '#2a0f0a', purple: '#ffb066',
+          navy: '#1a0a07', light: '#ffd9c2', dark: '#0b0403',
+          panelBg: '#100604', panelFg: '#ffd9c2',
+          accent: '#ff4d1f', accentInk: '#180703',
+          msgBg: '#5c1108', msgInk: '#ffffff'
+        },
+        inkOnDark: ['#ff5a2e', '#ff8c42', '#ffd9c2', '#ffb066'],
+        inkOnLight: ['#180703', '#3d1410', '#2a0f0a'],
+        paint: { bg: '#ff4d1f', ink: '#180703' },
+        glow: true
+      },
+
+      /* The one warm *light* scheme: ink on cream rather than light on
+         black. Structurally Pop — pale grounds, dark ink — but the whole
+         ramp is one hue, so it reads as a single-ink print job with the
+         paper doing the rest of the work. */
+      gold: {
+        label: 'Gold',
+        colors: {
+          paper: '#fdf6e8', white: '#fffdf7', lilac: '#efe0bb',
+          lightPink: '#e8b84b', pink: '#c9891f', magenta: '#a8690f',
+          violet: '#8a5410', indigo: '#5e3a08', purple: '#b58a3c',
+          navy: '#3f2705', light: '#fffdf7', dark: '#3a2405',
+          panelBg: '#fffdf7', panelFg: '#3a2405',
+          msgBg: '#fffdf7', msgInk: '#3a2405',
+          accent: '#c07d17', accentInk: '#fffdf7'
+        },
+        // Only the two palest: the amber grounds sit close enough to the
+        // boundary that a mid-tone ink on them would not clear 1.6:1.
+        inkOnDark: ['#fffdf7', '#f7ecd2'],
+        inkOnLight: ['#3a2405', '#5e3a08', '#8a5410'],
+        paint: { bg: '#c07d17', ink: '#fffdf7' }
+      },
+
+      /* Blueprint: a deep blue ground rather than a black one, with the
+         ramp climbing through slate into azure. No bloom — a drawing on
+         blueprint paper is printed, not lit. */
+      cobalt: {
+        label: 'Cobalt',
+        colors: {
+          paper: '#0a1428', white: '#061020', lilac: '#4da6ff',
+          lightPink: '#7ec4ff', pink: '#1f3f68', magenta: '#183255',
+          violet: '#264d7d', indigo: '#122744', purple: '#a8d8ff',
+          navy: '#0d1c36', light: '#dbeeff', dark: '#050b16',
+          panelBg: '#081324', panelFg: '#dbeeff',
+          msgBg: '#183255', msgInk: '#ffffff',
+          accent: '#4da6ff', accentInk: '#04101f'
+        },
+        inkOnDark: ['#dbeeff', '#a8d8ff', '#7ec4ff', '#4da6ff'],
+        inkOnLight: ['#04101f', '#0d1c36', '#122744'],
+        paint: { bg: '#4da6ff', ink: '#04101f' }
       }
     };
 
