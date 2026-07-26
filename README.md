@@ -80,6 +80,20 @@ Wrapping happens at layout time rather than being stored, so the same text
 re-flows when the grid is reshaped. Large letters are seven rows tall, so only
 about three lines fit at the default cell size — smaller cells buy more.
 
+### Source
+
+| Control | | |
+|---|---|---|
+| **Screen** | Dots · Edges | How a loaded image, clip or camera is drawn. **Dots** maps tone to dot radius across seven levels. **Edges** runs a Sobel over the same luminance and draws the result with the four rule glyphs — `— \ | /` — picking the one lying *along* the edge, so a picture comes out as line art tracing its own contours. |
+| **Motion** | Ignore · Drives Spawns | With a live source, difference successive frames and place new groups where the change is. It couples the picture to the animation through *movement* rather than brightness, so the canvas reacts to you rather than merely displaying you. |
+
+Both only do anything once a source is loaded. Motion also needs a *moving*
+one — on a still image nothing ever changes, so nothing is ever hot.
+
+The edge threshold is adaptive, taken from each frame's own mean gradient
+rather than fixed: a dim room and a contrasty one want very different cuts, and
+a fixed one would need riding every time the light changed.
+
 ### Buttons
 
 **Pause** · **Regenerate** (rolls a new seed) · **Load Media** / **Clear
@@ -118,7 +132,7 @@ bar — swap the message, bump the seed, change the palette — and the canvas
 follows. A parameter you delete resets its control rather than lingering.
 
 Parameters: `seed`, `palette`, `size`, `speed`, `density`, `scale`, `chroma`,
-`split`, `decay`, `trail`, `wipe`, `msgsplit`, `fmt`, `msg`.
+`split`, `decay`, `trail`, `wipe`, `msgsplit`, `screen`, `motion`, `fmt`, `msg`.
 
 An image, a clip or the camera is the one thing that can't ride along — a source
 stays local to the tab.
@@ -137,6 +151,20 @@ exactly how a halftone renders tone out of a single ink — and is re-screened a
 the new resolution whenever the grid reshapes, so the dots stay one-per-cell at
 every size. On a dark palette the mapping inverts, or every picture would come
 out as its own negative.
+
+**Edges reuse the glyphs that were already there.** `SEQUENCES[0]` is
+`['|', '/', '—', '\\']` — four directions, long since part of the vocabulary.
+A Sobel gives a gradient per cell; turning it a quarter turn gives the edge's
+own direction, which folds onto a half-circle (the glyphs read the same both
+ways) and snaps to the nearest of the four. The luminance buffer is kept at full
+precision rather than pre-quantised for exactly this: a gradient operator run
+over seven levels is mostly measuring the quantiser.
+
+**Motion is frame differencing at grid resolution.** Whatever changed since the
+last step, thresholded against that frame's own peak so a dim room and a bright
+one both give a usable set. Nothing is hot until a second frame has arrived —
+differencing a picture against an empty buffer would report its own brightness
+as movement.
 
 **A camera is just an `<img>` that moves.** Canvas draws an image, a video and
 another canvas identically, so a live source needed no new rendering path at

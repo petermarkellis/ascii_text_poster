@@ -549,6 +549,28 @@
     </div>
 
     <hr>
+    <h2>Source</h2>
+
+    <!-- How a loaded image, clip or camera is drawn onto the grid: as a
+         dot halftone, or as edges traced with the rule glyphs. -->
+    <div class="control-group">
+      <label for="screen">Screen</label>
+      <select id="screen">
+        <option value="dots">Dots</option>
+        <option value="edges">Edges</option>
+      </select>
+    </div>
+
+    <!-- Whether movement in a live source decides where groups appear. -->
+    <div class="control-group">
+      <label for="motion">Motion</label>
+      <select id="motion">
+        <option value="off">Ignore</option>
+        <option value="spawn">Drives Spawns</option>
+      </select>
+    </div>
+
+    <hr>
 
     <button id="anim">Pause</button>
     <button id="regen">Regenerate</button>
@@ -597,6 +619,11 @@
     const wipeInput = document.getElementById('wipe');
     const presetInput = document.getElementById('preset');
     const msgSplitInput = document.getElementById('msgSplit');
+    const screenInput = document.getElementById('screen');
+    const motionInput = document.getElementById('motion');
+
+    // Whether movement in a live source places new groups.
+    const motionDrives = () => motionInput.value === 'spawn';
 
     // How many drifting groups to keep alive, and how large each one is
     // built. Both read live rather than cached, so the sliders take
@@ -1241,9 +1268,17 @@
     let photoSrc = null;
     let photoLive = false;    // re-sample per step rather than once
     let photoMirror = false;  // a camera reads as a mirror, a file does not
-    let photo = null;         // Uint8Array of luminance levels, 0 = black
+    // Raw luminance, 0..255. Kept at full precision rather than pre-
+    // quantised: the dot screen wants seven levels, but a gradient
+    // operator run over seven levels is mostly measuring the quantiser.
+    let photo = null;
     let photoFills = [];      // one fill per level
     let photoInk = null;      // which ink those fills were built for
+    let photoPrev = null;     // the previous step's luminance
+    let photoSamples = 0;     // reads since this source was installed
+    let motion = null;        // per-cell change between the two
+    let motionHot = [];       // cells worth spawning at, this step only
+    let edgeMag = null, edgeDir = null;
     // Held rather than made per call. At 18 steps a second, allocating a
     // canvas per sample would be the whole cost of the feature.
     let photoCv = null, photoCtx = null;
@@ -1290,12 +1325,56 @@
       ctx.restore();
 
       const d = ctx.getImageData(0, 0, cols, rows).data;
-      if (!photo || photo.length !== cols * rows) photo = new Uint8Array(cols * rows);
-      for (let i = 0; i < photo.length; i++) {
-        const o = i * 4;
-        const l = (0.2126 * d[o] + 0.7152 * d[o + 1] + 0.0722 * d[o + 2]) / 255;
-        photo[i] = Math.round(l * (PHOTO_LEVELS - 1));
+      const n = cols * rows;
+      if (!photo || photo.length !== n) {
+        photo = new Uint8Array(n);
+        photoPrev = new Uint8Array(n);
+        motion = new Uint8Array(n);
+        motionHot.length = 0;
+        photoSamples = 0;
       }
+      // Keep the outgoing frame before it is overwritten; the difference
+      // between the two is the only thing "motion" means here.
+      photoPrev.set(photo);
+      for (let i = 0; i < n; i++) {
+        const o = i * 4;
+        photo[i] = 0.2126 * d[o] + 0.7152 * d[o + 1] + 0.0722 * d[o + 2];
+      }
+      photoSamples++;
+    }
+
+    /* ---------------------------------------------------------------
+       Motion. Frame differencing at grid resolution: whatever changed
+       since the last step. Entities can then be placed where the change
+       is rather than uniformly, which couples the picture to the
+       animation through movement instead of brightness — so the canvas
+       reacts to you rather than merely displaying you.
+    --------------------------------------------------------------- */
+    const MOTION_FLOOR = 14;   // below this it is sensor noise, on a 0..255 ramp
+    const MOTION_KEEP = 0.35;  // hot cells are those within this of the peak
+
+    function measureMotion() {
+      const n = cols * rows;
+      motionHot.length = 0;
+      if (!photo || !photoPrev || motion.length !== n) return;
+      // Until a second frame has arrived there is nothing to difference
+      // against — the previous buffer is still zeroed, and differencing a
+      // picture against black reports its own brightness as movement.
+      if (photoSamples < 2) return;
+
+      let peak = 0;
+      for (let i = 0; i < n; i++) {
+        const d = photo[i] - photoPrev[i];
+        const m = d < 0 ? -d : d;
+        motion[i] = m;
+        if (m > peak) peak = m;
+      }
+      // Relative to this frame's own peak, so a dim room and a bright one
+      // both give a usable set instead of one giving none and one giving
+      // every cell. A still frame clears the list rather than picking noise.
+      if (peak < MOTION_FLOOR) return;
+      const cut = Math.max(MOTION_FLOOR, peak * MOTION_KEEP);
+      for (let i = 0; i < n; i++) if (motion[i] >= cut) motionHot.push(i);
     }
 
     // Thousands of cells share seven patterns, so the data-URIs are built
@@ -1315,22 +1394,98 @@
     }
 
     function buildPhotoField() {
+      return screenInput.value === 'edges' ? buildPhotoEdges() : buildPhotoDots();
+    }
+
+    function buildPhotoDots() {
       const ground = C.paper;
       const dark = isDark(ground);
       const ink = dark ? C.light : C.dark;
+      const top = PHOTO_LEVELS - 1;
       buildPhotoFills(ink);
 
       for (let i = 0; i < base.length; i++) {
+        const level = Math.round((photo[i] / 255) * top);
         // How much ink this cell wants. On a pale ground that is how dark
         // the pixel is; on a dark one the ink is pale, so it inverts —
         // otherwise every picture would come out as its own negative.
-        const amount = dark ? photo[i] : PHOTO_LEVELS - 1 - photo[i];
-        const solid = amount === PHOTO_LEVELS - 1;
+        const amount = dark ? level : top - level;
+        const solid = amount === top;
         const c = base[i];
         c.bg = solid ? ink : ground;
         c.fill = photoFills[amount];
         c.fg = solid ? ground : ink;
         c.char = '';
+      }
+    }
+
+    /* ---------------------------------------------------------------
+       Edges. A Sobel over the same sampled luminance, with the gradient
+       angle quantised onto the four rule glyphs the sequences already
+       use. The glyph drawn is the one lying *along* the edge, which is
+       across the gradient — so a picture comes out as line art tracking
+       its own contours rather than as tone.
+    --------------------------------------------------------------- */
+    // Indexed by the quantised angle: 0°, 45°, 90°, 135°. Screen y runs
+    // down, so 45° travels down-right and reads as a backslash.
+    const EDGE_GLYPHS = ['—', '\\', '|', '/'];
+    const EDGE_FLOOR = 22;    // gradient below this is never an edge
+    const EDGE_BIAS = 1.25;   // cut, relative to the frame's mean gradient
+
+    function buildPhotoEdges() {
+      const ground = C.paper;
+      const ink = isDark(ground) ? C.light : C.dark;
+      const n = cols * rows;
+      if (!edgeMag || edgeMag.length !== n) {
+        edgeMag = new Float32Array(n);
+        edgeDir = new Uint8Array(n);
+      }
+
+      // Clamped at the border, so the frame edge isn't read as an edge.
+      const lum = (x, y) =>
+        photo[(y < 0 ? 0 : y >= rows ? rows - 1 : y) * cols +
+              (x < 0 ? 0 : x >= cols ? cols - 1 : x)];
+
+      let total = 0;
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const tl = lum(x - 1, y - 1), tt = lum(x, y - 1), tr = lum(x + 1, y - 1);
+          const ll = lum(x - 1, y),                         rr = lum(x + 1, y);
+          const bl = lum(x - 1, y + 1), bb = lum(x, y + 1), br = lum(x + 1, y + 1);
+
+          const gx = (tr + 2 * rr + br) - (tl + 2 * ll + bl);
+          const gy = (bl + 2 * bb + br) - (tl + 2 * tt + tr);
+          const mag = Math.sqrt(gx * gx + gy * gy);
+
+          const i = y * cols + x;
+          edgeMag[i] = mag;
+          total += mag;
+
+          // Turn the gradient a quarter turn to get the edge's own
+          // direction, fold onto [0, PI) since the glyphs read the same
+          // both ways, then snap to the nearest of the four.
+          let a = Math.atan2(gy, gx) + Math.PI / 2;
+          a %= Math.PI;
+          if (a < 0) a += Math.PI;
+          edgeDir[i] = Math.round(a / (Math.PI / 4)) % 4;
+        }
+      }
+
+      // Adaptive rather than a fixed cut. A flat scene and a contrasty one
+      // want very different thresholds, and on a live feed a fixed one
+      // would need riding every time the light changed.
+      const cut = Math.max(EDGE_FLOOR, (total / n) * EDGE_BIAS);
+
+      for (let i = 0; i < n; i++) {
+        const c = base[i];
+        c.bg = ground;
+        c.fill = null;
+        const mag = edgeMag[i];
+        if (mag < cut) { c.char = ''; c.fg = ink; continue; }
+        // Weight by how strong the edge is, so the line art has some
+        // variation in it rather than being one uniform stroke.
+        c.char = EDGE_GLYPHS[edgeDir[i]];
+        c.fg = ink + INK_FADE[mag > cut * 2.2 ? 0 : mag > cut * 1.5 ? 1 : 2];
       }
     }
 
@@ -1526,18 +1681,29 @@
         vy = rand(-0.5, 0.5);
       }
 
+      // Where something just moved, if anything did and the control asks
+      // for it. A bar takes only the row — it still has to sweep in from
+      // off-screen — while a block or a shape lands centred on the cell.
+      const hot = motionDrives() && motionHot.length
+        ? motionHot[Math.floor(rng() * motionHot.length)]
+        : -1;
+      const hotX = hot < 0 ? 0 : hot % cols;
+      const hotY = hot < 0 ? 0 : (hot / cols) | 0;
+
       // Enter from off-screen when moving fast enough to arrive.
       let x, y;
       if (bar) {
         x = vx > 0 ? -w : cols;
-        y = irand(0, rows - 1);
+        y = hot < 0 ? irand(0, rows - 1) : hotY;
       } else if (shape) {
         // Keep the whole silhouette on screen, or it reads as a blob.
-        x = irand(0, Math.max(0, cols - w));
-        y = irand(0, Math.max(0, rows - h));
+        x = hot < 0 ? irand(0, Math.max(0, cols - w))
+                    : Math.max(0, Math.min(cols - w, hotX - (w >> 1)));
+        y = hot < 0 ? irand(0, Math.max(0, rows - h))
+                    : Math.max(0, Math.min(rows - h, hotY - (h >> 1)));
       } else {
-        x = rand(-2, cols - w + 2);
-        y = rand(-1, rows - h + 1);
+        x = hot < 0 ? rand(-2, cols - w + 2) : hotX - w / 2;
+        y = hot < 0 ? rand(-1, rows - h + 1) : hotY - h / 2;
       }
 
       // A group either walks a sequence or scatters random glyphs.
@@ -2190,7 +2356,8 @@
       palette: paletteInput, size: cellSizeInput, speed: speedInput,
       density: densityInput, scale: scaleInput, chroma: chromaInput,
       split: splitInput, decay: decayInput, trail: trailInput,
-      wipe: wipeInput, msgsplit: msgSplitInput, fmt: msgFormat, msg: msgText
+      wipe: wipeInput, msgsplit: msgSplitInput, screen: screenInput,
+      motion: motionInput, fmt: msgFormat, msg: msgText
     };
 
     // Captured before any URL is applied, so "default" means the markup's
@@ -2321,6 +2488,12 @@
     // Nothing to recompute — the flag is read straight out of the second
     // pass — so it only needs the frame drawn again.
     msgSplitInput.addEventListener('change', composite);
+
+    // A live source re-screens itself on the next step anyway; a still
+    // needs telling.
+    screenInput.addEventListener('change', () => {
+      if (photo) { buildPhotoField(); composite(); }
+    });
 
     /* ---------------------------------------------------------------
        The hash is read on every change, not only at load: edit it in the
@@ -2463,6 +2636,8 @@
       photo = null;
       photoLive = false;
       photoMirror = false;
+      photoSamples = 0;
+      motionHot.length = 0;
     }
 
     function useSource(src, { live, mirror }) {
@@ -2480,6 +2655,8 @@
       photo = null;
       photoLive = false;
       photoMirror = false;
+      photoSamples = 0;
+      motionHot.length = 0;
     }
 
     function loadMediaFile(file) {
@@ -2677,7 +2854,10 @@
         // hold a frame you like.
         if (photoLive && stepped) {
           samplePhoto();
-          if (photo) buildPhotoField();
+          if (photo) {
+            if (motionDrives()) measureMotion();
+            buildPhotoField();
+          }
         }
 
         // Hand expired painted cells back to the composition. Tied to the
@@ -2823,6 +3003,8 @@
     enhanceSelect(trailInput);
     enhanceSelect(wipeInput);
     enhanceSelect(msgSplitInput);
+    enhanceSelect(screenInput);
+    enhanceSelect(motionInput);
     enhanceSelect(msgFormat);
 
     // The typed glyph is meaningless while a shape brush is selected, so
