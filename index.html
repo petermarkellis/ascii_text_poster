@@ -2238,15 +2238,32 @@
       }
     }
 
+    // What the current cell elements were built for, so a rebuild that
+    // wouldn't change them can be skipped.
+    let domCols = 0, domRows = 0, domFont = '';
+
     function buildDom() {
+      const fontSize = Math.round(Math.min(cellW, cellH) * 0.55) + 'px';
+
+      /* Regenerate and a palette change go through generate(), but neither
+         alters the grid's shape — only what gets drawn into it. Tearing
+         down and recreating thousands of elements to lay out the identical
+         thing is the one plainly wasted cost in a rebuild, so keep them.
+         The composite that follows repaints every cell regardless, because
+         generate() has just blanked the view arrays. */
+      if (domCols === cols && domRows === rows && domFont === fontSize &&
+          els.length === cols * rows) {
+        return;
+      }
+      domCols = cols; domRows = rows; domFont = fontSize;
+
       const frag = document.createDocumentFragment();
-      const fontSize = Math.round(Math.min(cellW, cellH) * 0.55);
       els = new Array(cols * rows);
 
       for (let i = 0; i < cols * rows; i++) {
         const el = document.createElement('div');
         el.className = 'cell';
-        el.style.fontSize = fontSize + 'px';
+        el.style.fontSize = fontSize;
         els[i] = el;
         frag.appendChild(el);
       }
