@@ -134,7 +134,8 @@ If the camera is refused, the button says why: `Camera Denied`, `No Camera`,
 ## Sharing
 
 The hash carries the seed and every control, omitting defaults — so a bare share
-is just `#seed=8412`:
+is just `#seed=8412`. Note the consequence: changing a default changes how every
+link that omitted it renders.
 
 ```
 #seed=7777&palette=emerald&size=34&chroma=55&split=2&fmt=large&msg=HI+//+THERE

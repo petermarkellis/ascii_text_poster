@@ -445,7 +445,7 @@
         <option value="pop">Pop</option>
         <option value="noir">Noir</option>
         <option value="blanc">Blanc</option>
-        <option value="emerald">Emerald</option>
+        <option value="emerald" selected>Emerald</option>
         <option value="ember">Ember</option>
         <option value="gold">Gold</option>
         <option value="cobalt">Cobalt</option>
@@ -458,37 +458,37 @@
       <select id="glow">
         <option value="auto">Auto</option>
         <option value="on">On</option>
-        <option value="off">Off</option>
+        <option value="off" selected>Off</option>
       </select>
     </div>
 
     <div class="control-group">
       <label for="cellSize">Size</label>
-      <input type="range" id="cellSize" min="16" max="56" value="26">
-      <span id="sizeVal" style="width: 22px; font-size: 11px; opacity: 0.6;">26</span>
+      <input type="range" id="cellSize" min="16" max="56" value="18">
+      <span id="sizeVal" style="width: 22px; font-size: 11px; opacity: 0.6;">18</span>
     </div>
 
     <div class="control-group">
       <label for="speed">Speed</label>
-      <input type="range" id="speed" min="0" max="200" value="100">
+      <input type="range" id="speed" min="0" max="200" value="125">
     </div>
 
     <div class="control-group">
       <label for="density">Density</label>
-      <input type="range" id="density" min="0" max="20" value="7">
-      <span id="densityVal" style="width: 26px; font-size: 11px; opacity: 0.6;">7</span>
+      <input type="range" id="density" min="0" max="20" value="11">
+      <span id="densityVal" style="width: 26px; font-size: 11px; opacity: 0.6;">11</span>
     </div>
 
     <div class="control-group">
       <label for="scale">Scale</label>
-      <input type="range" id="scale" min="50" max="260" step="10" value="100">
-      <span id="scaleVal" style="width: 26px; font-size: 11px; opacity: 0.6;">1.0×</span>
+      <input type="range" id="scale" min="50" max="260" step="10" value="210">
+      <span id="scaleVal" style="width: 26px; font-size: 11px; opacity: 0.6;">2.1×</span>
     </div>
 
     <!-- Marches the whole still layer sideways, a cell at a time. -->
     <div class="control-group">
       <label for="scroll">Scroll</label>
-      <input type="range" id="scroll" min="0" max="100" value="0">
+      <input type="range" id="scroll" min="0" max="100" value="6">
       <span id="scrollVal" style="width: 26px; font-size: 11px; opacity: 0.6;">off</span>
     </div>
 
@@ -496,23 +496,23 @@
          motion they can have. -->
     <div class="control-group">
       <label for="drift">Drift</label>
-      <input type="range" id="drift" min="0" max="100" value="20">
-      <span id="driftVal" style="width: 26px; font-size: 11px; opacity: 0.6;">20%</span>
+      <input type="range" id="drift" min="0" max="100" value="100">
+      <span id="driftVal" style="width: 26px; font-size: 11px; opacity: 0.6;">100%</span>
     </div>
 
     <!-- How much of the still layer is present at all. At 0 it dissolves
          away and the canvas is left bare. -->
     <div class="control-group">
       <label for="ground">Ground</label>
-      <input type="range" id="ground" min="0" max="100" value="100">
-      <span id="groundVal" style="width: 26px; font-size: 11px; opacity: 0.6;">100%</span>
+      <input type="range" id="ground" min="0" max="100" value="42">
+      <span id="groundVal" style="width: 26px; font-size: 11px; opacity: 0.6;">42%</span>
     </div>
 
     <!-- How fast the ground rewrites itself, one region at a time. -->
     <div class="control-group">
       <label for="renew">Renew</label>
-      <input type="range" id="renew" min="0" max="100" value="50">
-      <span id="renewVal" style="width: 26px; font-size: 11px; opacity: 0.6;">50%</span>
+      <input type="range" id="renew" min="0" max="100" value="100">
+      <span id="renewVal" style="width: 26px; font-size: 11px; opacity: 0.6;">100%</span>
     </div>
 
     <div class="control-group">
@@ -533,7 +533,7 @@
       <label for="msgSplit">Msg</label>
       <select id="msgSplit">
         <option value="ignore">Ignore Split</option>
-        <option value="apply">Apply Split</option>
+        <option value="apply" selected>Apply Split</option>
       </select>
     </div>
 
@@ -542,7 +542,7 @@
       <label for="wipe">Wipe</label>
       <select id="wipe">
         <option value="random">Random</option>
-        <option value="diagonal">Diagonal</option>
+        <option value="diagonal" selected>Diagonal</option>
         <option value="columns">Columns</option>
         <option value="rows">Rows</option>
         <option value="radial">Radial</option>
@@ -556,12 +556,12 @@
 
     <div class="control-group">
       <label for="bgColor">BG</label>
-      <input type="color" id="bgColor" value="#e6197f">
+      <input type="color" id="bgColor" value="#00ff9c">
     </div>
 
     <div class="control-group">
       <label for="textColor">Ink</label>
-      <input type="color" id="textColor" value="#ffffff">
+      <input type="color" id="textColor" value="#04120c">
     </div>
 
     <div class="control-group">
