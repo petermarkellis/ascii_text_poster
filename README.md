@@ -148,7 +148,11 @@ stays local to the tab.
 ## How it works
 
 **Palettes fill identical slots**, so the composition logic never changes —
-only the values do. What keeps a scheme legible is that ink is picked *against a
+only the values do. Each also names the grounds a drifting group may take:
+roughly a third of coloured blocks land on a vivid slot, so the bright end of a
+scheme isn't confined to dot colours and bars. Repeats in that list weight the
+pick, and it costs the same single draw whatever its length, so adding to it
+changes what a seed looks like without changing what it lays out. What keeps a scheme legible is that ink is picked *against a
 cell's own ground* rather than paired up in advance: `inkOnDark` and
 `inkOnLight` for entities, `inkFor()` for bars. Every reachable ink-and-ground
 combination across all seven palettes clears 1.6:1.

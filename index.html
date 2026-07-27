@@ -771,6 +771,12 @@
         // What the paint pickers reset to. Chosen to read *against* the
         // canvas rather than blend into it, so a painted cell is visible
         // the moment you draw it.
+        // Grounds a drifting group may take. Repeated slots weigh the
+        // pick; the vivid ones appear once so they read as accents
+        // among the dark blocks rather than becoming the norm.
+        // Pink only. Purple as a ground revives the very pairing the ink
+        // list above avoids — #f2a3d5 on #9d6ae8 is 1.41:1.
+        entityBg: ['magenta', 'indigo', 'navy', 'violet', 'pink', 'pink'],
         paint: { bg: '#e6197f', ink: '#ffffff' }
       },
 
@@ -790,6 +796,10 @@
         inkOnDark: ['#e9e9ee', '#c4c4cf', '#9d9daa', '#7c7c8a'],
         inkOnLight: ['#1c1c21', '#33333a', '#4a4a53'],
         // Noir's canvas is almost all dark, so paint lands light-on-dark.
+        // Grounds a drifting group may take. Repeated slots weigh the
+        // pick; the vivid ones appear once so they read as accents
+        // among the dark blocks rather than becoming the norm.
+        entityBg: ['magenta', 'indigo', 'navy', 'violet', 'purple', 'purple'],
         paint: { bg: '#d5d5dc', ink: '#33333a' }
       },
 
@@ -812,6 +822,10 @@
         // them (1.65 / 1.79 / 1.89 / 1.99).
         inkOnLight: ['#2b2b31', '#45454e', '#61616c'],
         // Blanc is the mirror: a dark mark on a pale canvas.
+        // Grounds a drifting group may take. Repeated slots weigh the
+        // pick; the vivid ones appear once so they read as accents
+        // among the dark blocks rather than becoming the norm.
+        entityBg: ['magenta', 'indigo', 'navy', 'violet', 'lightPink', 'lightPink'],
         paint: { bg: '#45454e', ink: '#f2f2f5' }
       },
 
@@ -839,6 +853,10 @@
         },
         inkOnDark: ['#00ff9c', '#5cffc9', '#c7ffe9', '#00d68f'],
         inkOnLight: ['#04120c', '#0b3b2c', '#08402e'],
+        // Grounds a drifting group may take. Repeated slots weigh the
+        // pick; the vivid ones appear once so they read as accents
+        // among the dark blocks rather than becoming the norm.
+        entityBg: ['magenta', 'indigo', 'navy', 'violet', 'lilac', 'purple'],
         paint: { bg: '#00ff9c', ink: '#04120c' },
         // Asks for a bloom by default, as Ember does. Saturated ink on a
         // near-black ground is what neon *is*; the same treatment on the
@@ -864,6 +882,10 @@
         },
         inkOnDark: ['#ff5a2e', '#ff8c42', '#ffd9c2', '#ffb066'],
         inkOnLight: ['#180703', '#3d1410', '#2a0f0a'],
+        // Grounds a drifting group may take. Repeated slots weigh the
+        // pick; the vivid ones appear once so they read as accents
+        // among the dark blocks rather than becoming the norm.
+        entityBg: ['magenta', 'indigo', 'navy', 'violet', 'lightPink', 'purple'],
         paint: { bg: '#ff4d1f', ink: '#180703' },
         glow: true
       },
@@ -887,6 +909,10 @@
         // boundary that a mid-tone ink on them would not clear 1.6:1.
         inkOnDark: ['#fffdf7', '#f7ecd2'],
         inkOnLight: ['#3a2405', '#5e3a08', '#8a5410'],
+        // Grounds a drifting group may take. Repeated slots weigh the
+        // pick; the vivid ones appear once so they read as accents
+        // among the dark blocks rather than becoming the norm.
+        entityBg: ['magenta', 'indigo', 'navy', 'violet', 'lightPink', 'lightPink'],
         paint: { bg: '#c07d17', ink: '#fffdf7' }
       },
 
@@ -906,11 +932,15 @@
         },
         inkOnDark: ['#dbeeff', '#a8d8ff', '#7ec4ff', '#4da6ff'],
         inkOnLight: ['#04101f', '#0d1c36', '#122744'],
+        // Grounds a drifting group may take. Repeated slots weigh the
+        // pick; the vivid ones appear once so they read as accents
+        // among the dark blocks rather than becoming the norm.
+        entityBg: ['magenta', 'indigo', 'navy', 'violet', 'lilac', 'purple'],
         paint: { bg: '#4da6ff', ink: '#04101f' }
       }
     };
 
-    let C, INK_ON_DARK, INK_ON_LIGHT;
+    let C, INK_ON_DARK, INK_ON_LIGHT, ENTITY_BG;
     let paletteGlow = false;   // whether this scheme wants a bloom on Auto
 
     // Auto defers to the palette; the other two override it either way.
@@ -924,6 +954,8 @@
       C = p.colors;
       INK_ON_DARK = p.inkOnDark;
       INK_ON_LIGHT = p.inkOnLight;
+      ENTITY_BG = (p.entityBg || ['magenta', 'indigo', 'navy', 'violet'])
+        .map((slot) => C[slot]);
       paletteGlow = !!p.glow;
       syncGlow();
       bgColorInput.value = p.paint.bg;
@@ -1996,7 +2028,7 @@
       const seq = !bar && chance(0.55) ? pick(SEQUENCES) : null;
       const set = !bar && chance(0.2) ? SLASHES : GLYPHS;
       const onPaper = chance(0.72);
-      const bg = onPaper ? (chance(0.6) ? C.paper : C.white) : pick([C.magenta, C.indigo, C.navy, C.violet]);
+      const bg = onPaper ? (chance(0.6) ? C.paper : C.white) : pick(ENTITY_BG);
 
       const e = {
         x, y, w, h, vx, vy, seq, set, bg, shape, mask, letter,
