@@ -611,6 +611,14 @@
       </select>
     </div>
 
+    <!-- How long a finished message holds before it frays away and plays
+         again. Off leaves it up for good. -->
+    <div class="control-group">
+      <label for="msgLoop">Loop</label>
+      <input type="range" id="msgLoop" min="0" max="8" step="2" value="4">
+      <span id="msgLoopVal" style="width: 26px; font-size: 11px; opacity: 0.6;">4s</span>
+    </div>
+
     <div class="control-group">
       <!-- Longer than one line's worth on purpose: it wraps, and `//`
            breaks it wherever you want. -->
@@ -695,6 +703,8 @@
     const msgFormat = document.getElementById('msgFormat');
     // Up here with the rest rather than beside the message code, because
     // the permalink needs to read it before that section is reached.
+    const msgLoopInput = document.getElementById('msgLoop');
+    const msgLoopVal = document.getElementById('msgLoopVal');
     const msgText = document.getElementById('msgText');
     const msgGo = document.getElementById('msgGo');
     const trailInput = document.getElementById('trail');
@@ -723,6 +733,8 @@
 
     // Seconds a user-made cell survives; 0 means it never expires.
     const decaySeconds = () => +decayInput.value;
+    // Seconds a finished message holds before replaying; 0 keeps it up.
+    const msgLoop = () => +msgLoopInput.value;
     const panelToggle = document.getElementById('panelToggle');
 
     // Keeps the control DOM aligned with the cell block that backs it.
@@ -2420,7 +2432,7 @@
             // lx === GLYPH_W is the gap column between large letters.
             if (dx >= 0 && k < LN.letters.length && lx < GLYPH_W) {
               const L = LN.letters[k];
-              const life = decaySeconds();
+              const life = msgLoop();
               const gone = life > 0 &&
                 message.t >= message.endAt + life + L.jit * MSG_FADE_SPREAD;
               // Column within the whole message, so two lines that happen
@@ -2727,6 +2739,7 @@
       chroma: chromaInput,
       split: splitInput, decay: decayInput, trail: trailInput,
       wipe: wipeInput, msgsplit: msgSplitInput, glow: glowInput,
+      loop: msgLoopInput,
       screen: screenInput,
       motion: motionInput, fmt: msgFormat, msg: msgText
     };
@@ -2825,6 +2838,12 @@
       rebuildSoon(120);
     });
 
+    const syncMsgLoop = () => {
+      msgLoopVal.textContent = msgLoop() === 0 ? 'off' : msgLoop() + 's';
+    };
+    msgLoopInput.addEventListener('input', syncMsgLoop);
+    syncMsgLoop();
+
     const syncDecay = () => {
       decayVal.textContent = decaySeconds() === 0 ? 'off' : decaySeconds() + 's';
     };
@@ -2916,6 +2935,7 @@
       syncDrift();
       syncGround();
       syncRenew();
+      syncMsgLoop();
       syncDecay();
       syncDensity();
       syncScale();
@@ -2978,6 +2998,7 @@
       syncDrift();
       syncGround();
       syncRenew();
+      syncMsgLoop();
       syncDecay();
       syncDensity();
       syncScale();
@@ -3320,10 +3341,10 @@
       // a permanent message costs no frames; arming the slider later
       // simply resumes the clock and the word starts to fray.
       if (message) {
-        const life = decaySeconds();
+        const life = msgLoop();
         if (life > 0 && message.t > message.endAt + life + MSG_FADE_SPREAD) {
-          // Rewind rather than clear: once it has decayed away the whole
-          // reveal plays again. Decay 0 holds it instead, and an empty
+          // Rewind rather than clear: once it has frayed away the whole
+          // reveal plays again. Loop off holds it instead, and an empty
           // input is still what removes it for good.
           message.t = 0;
           message.step = 0;

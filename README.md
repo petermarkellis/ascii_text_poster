@@ -65,10 +65,15 @@ clears with the same diagonal sweep everything else uses.
 | **Brush** | Character · Arrow ↑→↓← | The arrows are drawn SVG rather than glyphs, so they stroke in the cell's ink. |
 | **Char** | 1 character | Disabled while a shape brush is selected. |
 | **Fill** | Solid · Dots · Hatch | A halftone cell is a texture, never a character slot — dots suppress the glyph. |
-| **Decay** | 0–5s | How long anything you add survives before handing its cells back. `0` keeps it indefinitely. Governs brush strokes and messages alike, nothing else. |
+| **Decay** | 0–5s | How long a brush stroke survives before handing its cells back. `0` keeps it indefinitely. Brush strokes only — the message keeps its own clock, below. |
 | **Trail** | Auto · Darken · Lighten | A drag longer than ten cells cools behind the cursor. Auto sinks the tail toward the palette's own ground — white on Blanc, near-black on Emerald — so it recedes either way. With Decay off the whole stroke stays at full strength, since nothing would ever restore a faded tail. |
 
 ### Message
+
+**Loop** (`off`, 2s, 4s, 6s, 8s) is how long a finished message holds before it
+frays away and plays again. `off` leaves it up for good. It's separate from
+Decay, so text and brush strokes no longer share one clock — a permanent message
+over a fading drawing, or the reverse, are both possible now.
 
 Type and press the arrow. **Inline** puts one letter per cell; **Large** builds
 each letter from a 5×7 block of cells, which churn and then fall away so the
@@ -139,7 +144,7 @@ bar — swap the message, bump the seed, change the palette — and the canvas
 follows. A parameter you delete resets its control rather than lingering.
 
 Parameters: `seed`, `palette`, `size`, `speed`, `density`, `scale`, `chroma`,
-`drift`, `ground`, `renew`, `split`, `decay`, `trail`, `wipe`, `msgsplit`, `glow`, `screen`, `motion`,
+`drift`, `ground`, `renew`, `split`, `decay`, `trail`, `wipe`, `msgsplit`, `loop`, `glow`, `screen`, `motion`,
 `fmt`, `msg`.
 
 An image, a clip or the camera is the one thing that can't ride along — a source
