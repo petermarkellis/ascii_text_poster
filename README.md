@@ -49,6 +49,7 @@ clears with the same diagonal sweep everything else uses.
 | **Speed** | 0–200 | Scales the artwork clock. Transitions ignore it — they're UI, not motion. |
 | **Density** | 0–20 | How many drifting groups stay alive. Lowering it lets the surplus die off naturally rather than culling mid-life. |
 | **Scale** | 0.5×–2.6× | How large those groups are built. |
+| **Ground** | 0–100% | How much of the still layer is present at all. At `0` it dissolves away and the canvas is left bare, so turning every slider down really does empty the screen — every layer can now be absent, which was not previously true of the ground. It recedes in patches through the same coherent noise as everything else, not as a uniform fade. Entities keep drifting over the bare canvas, and anything you painted stays. |
 | **Renew** | 0–100% | How fast the ground rewrites itself. One field region at a time re-rolls its scheme and dissolves into it through coherent noise, so it arrives in patches rather than as a rectangle switching over. Bars and anything hand-painted are left alone — a renewal renews the ground, not what was put on it. About 70% of the ground differs after a minute at the default. |
 | **Drift** | 0–100% | Scrolls the halftone patterns. The fields belong to the still layer, so this is the only motion available to them — the cells keep their colours and their edges, only the dots travel. A screened photo is exempt: drifting its dots would slide the tone off the thing it describes. |
 | **Chroma** | 0–100% | Position-dependent red/blue drift: left of centre gains red, right gains blue. |
@@ -138,7 +139,7 @@ bar — swap the message, bump the seed, change the palette — and the canvas
 follows. A parameter you delete resets its control rather than lingering.
 
 Parameters: `seed`, `palette`, `size`, `speed`, `density`, `scale`, `chroma`,
-`drift`, `renew`, `split`, `decay`, `trail`, `wipe`, `msgsplit`, `glow`, `screen`, `motion`,
+`drift`, `ground`, `renew`, `split`, `decay`, `trail`, `wipe`, `msgsplit`, `glow`, `screen`, `motion`,
 `fmt`, `msg`.
 
 An image, a clip or the camera is the one thing that can't ride along — a source
@@ -170,6 +171,13 @@ cell, so switching it costs a single mutation rather than thousands. It draws in
 `currentColor`, which is what lets one rule serve every palette — a glyph blooms
 in whatever ink it already had — and only cells actually holding a glyph pay for
 it.
+
+**Every layer can be absent.** Entities rot, messages decay, brush strokes hand
+their cells back — but the ground was originally laid once and kept for the life
+of a seed, so turning everything down still left a full canvas. `Ground` closes
+that: it is a mask over the still layer, eased toward rather than jumped to, and
+thresholded against a noise field held with the grid so it costs one array read
+per cell rather than an fbm sample.
 
 **Renewal runs on a stream of its own.** It draws on the same helpers the
 composition does — `fieldScheme`, `pick`, `irand` — but swapping the generator

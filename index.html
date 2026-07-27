@@ -493,6 +493,14 @@
       <span id="driftVal" style="width: 26px; font-size: 11px; opacity: 0.6;">20%</span>
     </div>
 
+    <!-- How much of the still layer is present at all. At 0 it dissolves
+         away and the canvas is left bare. -->
+    <div class="control-group">
+      <label for="ground">Ground</label>
+      <input type="range" id="ground" min="0" max="100" value="100">
+      <span id="groundVal" style="width: 26px; font-size: 11px; opacity: 0.6;">100%</span>
+    </div>
+
     <!-- How fast the ground rewrites itself, one region at a time. -->
     <div class="control-group">
       <label for="renew">Renew</label>
@@ -676,6 +684,8 @@
     const scaleVal = document.getElementById('scaleVal');
     const driftInput = document.getElementById('drift');
     const driftVal = document.getElementById('driftVal');
+    const groundInput = document.getElementById('ground');
+    const groundVal = document.getElementById('groundVal');
     const renewInput = document.getElementById('renew');
     const renewVal = document.getElementById('renewVal');
     const chromaInput = document.getElementById('chroma');
@@ -707,6 +717,8 @@
     const driftRate = () => (+driftInput.value / 100) * DRIFT_MAX;
     // How fast the ground rewrites itself; 0 leaves it fixed.
     const renewRate = () => +renewInput.value / 100;
+    // How much of the still layer is present. Eased toward, not jumped to.
+    const groundTarget = () => +groundInput.value / 100;
     const panel = document.getElementById('panel');
 
     // Seconds a user-made cell survives; 0 means it never expires.
@@ -1740,6 +1752,17 @@
     const RENEW_GAP = 1.2;    // seconds between renewals at full rate
     const RENEW_TIME = 2.2;   // seconds one region takes to change over
 
+    /* The still layer had no way to be absent. Every other layer arrives
+       and leaves — entities rot, messages decay, strokes hand their cells
+       back — but the ground was laid once and kept for the life of the
+       seed, which is why turning everything down still left a full canvas.
+       This is how much of it is present, eased toward rather than jumped
+       to, and dissolved through the same coherent noise as everything
+       else so it empties in patches rather than fading uniformly. */
+    const GROUND_EASE = 0.9;   // roughly three seconds to settle
+    let groundLevel = 1;
+    let groundNoise = null;    // per cell, fixed with the grid
+
     let fieldRegions = [];
     let renew = null;         // the region currently changing, or null
     let renewWait = 0;        // seconds until the next one starts
@@ -2305,6 +2328,16 @@
         let char = suppressesChar(fill) ? '' : (on ? coverChar[i] : b.char);
         let ui = 0;   // set by the message and panel layers below
 
+        // Cells the ground has receded from. Entities are the live layer
+        // and keep drifting over the bare canvas; a hand-painted cell is
+        // yours and stays, whatever the ground does underneath it.
+        if (!on && groundLevel < 1 && groundNoise[i] > groundLevel && !painted.has(i)) {
+          bg = C.paper;
+          fill = null;
+          fg = C.dark;
+          char = '';
+        }
+
         if (wipe) {
           const x = i % cols, y = (i / cols) | 0;
           // Whichever arrival this sweep drew; resolved once at its start
@@ -2592,6 +2625,13 @@
       postUi = new Uint8Array(n);
       splitGuard = new Uint8Array(n);
 
+      // Depends only on position, so it is worth holding rather than
+      // recomputing 1500 fbm samples on every frame the ground is short.
+      groundNoise = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        groundNoise[i] = fbm((i % cols) * 0.22, ((i / cols) | 0) * 0.22, 5);
+      }
+
       // The picture is re-screened at the new grid rather than scaled,
       // so the halftone stays one dot per cell at every size.
       samplePhoto();
@@ -2651,7 +2691,7 @@
     const URL_FIELDS = {
       palette: paletteInput, size: cellSizeInput, speed: speedInput,
       density: densityInput, scale: scaleInput, drift: driftInput,
-      renew: renewInput,
+      ground: groundInput, renew: renewInput,
       chroma: chromaInput,
       split: splitInput, decay: decayInput, trail: trailInput,
       wipe: wipeInput, msgsplit: msgSplitInput, glow: glowInput,
@@ -2778,6 +2818,12 @@
     driftInput.addEventListener('input', syncDrift);
     syncDrift();
 
+    const syncGround = () => {
+      groundVal.textContent = groundInput.value === '0' ? 'bare' : groundInput.value + '%';
+    };
+    groundInput.addEventListener('input', syncGround);
+    syncGround();
+
     const syncRenew = () => {
       renewVal.textContent = renewInput.value === '0' ? 'off' : renewInput.value + '%';
     };
@@ -2836,6 +2882,7 @@
       if (presetInput.syncUi) presetInput.syncUi();
       sizeVal.textContent = cellSizeInput.value;
       syncDrift();
+      syncGround();
       syncRenew();
       syncDecay();
       syncDensity();
@@ -2897,6 +2944,7 @@
       for (const [k, v] of Object.entries(p)) URL_FIELDS[k].value = v;
       sizeVal.textContent = cellSizeInput.value;
       syncDrift();
+      syncGround();
       syncRenew();
       syncDecay();
       syncDensity();
@@ -3172,6 +3220,14 @@
         const scale = speedInput.value / 100;
         accumulator += dt * scale;
         clock += dt * scale;
+
+        // Ease the ground toward wherever the slider is.
+        const gTarget = groundTarget();
+        if (groundLevel !== gTarget) {
+          groundLevel += (gTarget - groundLevel) * Math.min(1, dt * scale * GROUND_EASE);
+          if (Math.abs(gTarget - groundLevel) < 0.002) groundLevel = gTarget;
+          stepped = true;
+        }
 
         // One property on the container moves every halftone field at once.
         const drift = driftRate();
