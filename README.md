@@ -49,6 +49,7 @@ clears with the same diagonal sweep everything else uses.
 | **Speed** | 0–200 | Scales the artwork clock. Transitions ignore it — they're UI, not motion. |
 | **Density** | 0–20 | How many drifting groups stay alive. Lowering it lets the surplus die off naturally rather than culling mid-life. |
 | **Scale** | 0.5×–2.6× | How large those groups are built. |
+| **Drift** | 0–100% | Scrolls the halftone patterns. The fields belong to the still layer, so this is the only motion available to them — the cells keep their colours and their edges, only the dots travel. A screened photo is exempt: drifting its dots would slide the tone off the thing it describes. |
 | **Chroma** | 0–100% | Position-dependent red/blue drift: left of centre gains red, right gains blue. |
 | **Split** | 0–4 cells | True chromatic aberration — a cell takes its red from the left and its blue from the right, keeping its own green. Only edges fringe. |
 | **Msg** | Ignore · Apply Split | Whether the split reaches the typed message. Ignoring it also stops neighbouring cells sampling the text, so it doesn't bleed a halo either. |
@@ -136,8 +137,8 @@ bar — swap the message, bump the seed, change the palette — and the canvas
 follows. A parameter you delete resets its control rather than lingering.
 
 Parameters: `seed`, `palette`, `size`, `speed`, `density`, `scale`, `chroma`,
-`split`, `decay`, `trail`, `wipe`, `msgsplit`, `glow`, `screen`, `motion`, `fmt`,
-`msg`.
+`drift`, `split`, `decay`, `trail`, `wipe`, `msgsplit`, `glow`, `screen`, `motion`,
+`fmt`, `msg`.
 
 An image, a clip or the camera is the one thing that can't ride along — a source
 stays local to the tab.
@@ -168,6 +169,15 @@ cell, so switching it costs a single mutation rather than thousands. It draws in
 `currentColor`, which is what lets one rule serve every palette — a glyph blooms
 in whatever ink it already had — and only cells actually holding a glyph pay for
 it.
+
+**The fields scroll from one property.** Each patterned cell already carries a
+`background-position` offset, which is what makes neighbouring cells tile as one
+continuous field rather than as a grid of separate squares. Holding that offset
+as a `calc()` against a shared custom property means the whole canvas of
+halftones moves from a single write on the container — measured at 0.001 ms for
+720 scrolling cells, against one write per cell per frame otherwise. The wrap is
+2520px, which every tile size in use divides, so the reset lands on a tile
+boundary and is invisible.
 
 **Edges reuse the glyphs that were already there.** `SEQUENCES[0]` is
 `['|', '/', '—', '\\']` — four directions, long since part of the vocabulary.

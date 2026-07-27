@@ -356,6 +356,10 @@
 
     /* Edge-to-Edge Grid Container */
     .grid-container {
+      /* What the halftone fields scroll against. Zero here means the
+         pattern sits exactly where the per-cell offset puts it. */
+      --driftX: 0px;
+      --driftY: 0px;
       display: grid;
       width: 100vw;
       height: 100vh;
@@ -479,6 +483,14 @@
       <label for="scale">Scale</label>
       <input type="range" id="scale" min="50" max="260" step="10" value="100">
       <span id="scaleVal" style="width: 26px; font-size: 11px; opacity: 0.6;">1.0×</span>
+    </div>
+
+    <!-- The halftone fields belong to the still layer, so this is the only
+         motion they can have. -->
+    <div class="control-group">
+      <label for="drift">Drift</label>
+      <input type="range" id="drift" min="0" max="100" value="20">
+      <span id="driftVal" style="width: 26px; font-size: 11px; opacity: 0.6;">20%</span>
     </div>
 
     <div class="control-group">
@@ -655,6 +667,8 @@
 
     const scaleInput = document.getElementById('scale');
     const scaleVal = document.getElementById('scaleVal');
+    const driftInput = document.getElementById('drift');
+    const driftVal = document.getElementById('driftVal');
     const chromaInput = document.getElementById('chroma');
     const chromaVal = document.getElementById('chromaVal');
     const splitInput = document.getElementById('split');
@@ -680,6 +694,8 @@
     // effect without a rebuild — they only govern what spawns next.
     const targetEntities = () => +densityInput.value;
     const sizeScale = () => +scaleInput.value / 100;
+    // Field scroll, in px per second.
+    const driftRate = () => (+driftInput.value / 100) * DRIFT_MAX;
     const panel = document.getElementById('panel');
 
     // Seconds a user-made cell survives; 0 means it never expires.
@@ -998,6 +1014,15 @@
     // for the Decay slider's value then hands its cells back. The extra
     // noise term staggers the hand-back so it erodes in patches rather
     // than vanishing on one frame. Decay 0 means keep it indefinitely.
+    /* The fields are part of the still layer, so without this the largest
+       textured areas of the canvas never move at all. Scrolling the pattern
+       offset gives them motion without disturbing the composition: the
+       cells keep their colours and their edges, only the dots travel. */
+    const DRIFT_MAX = 22;     // px per second at full slider
+    // Every tile size in use divides this (dots are 4-9px, hatch 6-10), so
+    // the wrap lands on a tile boundary for all of them and is invisible.
+    const DRIFT_WRAP = 2520;
+
     const PAINT_SPREAD = 1.4;
     const MSG_FADE_SPREAD = 0.8;
 
@@ -1515,7 +1540,11 @@
         // Bare ground at one end, solid ink at the other; neither is dots.
         if (l === 0 || l === PHOTO_LEVELS - 1) { photoFills.push(null); continue; }
         const t = l / (PHOTO_LEVELS - 2);
-        photoFills.push(dotFill(ink, PHOTO_TILE, 0.7 + t * (PHOTO_TILE / 2 - 0.7)));
+        const f = dotFill(ink, PHOTO_TILE, 0.7 + t * (PHOTO_TILE / 2 - 0.7));
+        // A screened picture stays put. Drifting its dots would slide the
+        // tone off the thing it is describing and smear the image.
+        f.fixed = true;
+        photoFills.push(f);
       }
     }
 
@@ -2335,8 +2364,14 @@
             els[i].style.backgroundImage = fill.image;
             els[i].style.backgroundSize = `${fill.size}px ${fill.size}px`;
             const x = i % cols, y = (i / cols) | 0;
-            els[i].style.backgroundPosition =
-              `${-(x * cellW).toFixed(2)}px ${-(y * cellH).toFixed(2)}px`;
+            const ox = (x * cellW).toFixed(2), oy = (y * cellH).toFixed(2);
+            // The per-cell offset is what makes neighbouring cells tile as
+            // one continuous field. Holding it as a calc against a shared
+            // variable lets the whole field scroll from a single write on
+            // the container, instead of one per filled cell per frame.
+            els[i].style.backgroundPosition = fill.fixed
+              ? `-${ox}px -${oy}px`
+              : `calc(var(--driftX) - ${ox}px) calc(var(--driftY) - ${oy}px)`;
           } else {
             els[i].style.backgroundImage = 'none';
           }
@@ -2502,7 +2537,8 @@
     --------------------------------------------------------------- */
     const URL_FIELDS = {
       palette: paletteInput, size: cellSizeInput, speed: speedInput,
-      density: densityInput, scale: scaleInput, chroma: chromaInput,
+      density: densityInput, scale: scaleInput, drift: driftInput,
+      chroma: chromaInput,
       split: splitInput, decay: decayInput, trail: trailInput,
       wipe: wipeInput, msgsplit: msgSplitInput, glow: glowInput,
       screen: screenInput,
@@ -2617,6 +2653,17 @@
     scaleInput.addEventListener('input', syncScale);
     syncScale();
 
+    const syncDrift = () => {
+      driftVal.textContent = driftInput.value === '0' ? 'off' : driftInput.value + '%';
+      // Nothing advances the variables once the rate is zero, so park them.
+      if (!driftRate()) {
+        grid.style.setProperty('--driftX', '0px');
+        grid.style.setProperty('--driftY', '0px');
+      }
+    };
+    driftInput.addEventListener('input', syncDrift);
+    syncDrift();
+
     const syncChroma = () => {
       chromaVal.textContent = chromaInput.value === '0' ? 'off' : chromaInput.value + '%';
       // Entries are keyed by colour and column only, so a new amount
@@ -2668,6 +2715,7 @@
       presetInput.value = 'custom';
       if (presetInput.syncUi) presetInput.syncUi();
       sizeVal.textContent = cellSizeInput.value;
+      syncDrift();
       syncDecay();
       syncDensity();
       syncScale();
@@ -2727,6 +2775,7 @@
 
       for (const [k, v] of Object.entries(p)) URL_FIELDS[k].value = v;
       sizeVal.textContent = cellSizeInput.value;
+      syncDrift();
       syncDecay();
       syncDensity();
       syncScale();
@@ -3001,6 +3050,14 @@
         const scale = speedInput.value / 100;
         accumulator += dt * scale;
         clock += dt * scale;
+
+        // One property on the container moves every halftone field at once.
+        const drift = driftRate();
+        if (drift) {
+          const d = clock * drift;
+          grid.style.setProperty('--driftX', ((d * 0.80) % DRIFT_WRAP).toFixed(1) + 'px');
+          grid.style.setProperty('--driftY', ((d * 0.45) % DRIFT_WRAP).toFixed(1) + 'px');
+        }
 
         while (accumulator >= STEP) {
           accumulator -= STEP;
