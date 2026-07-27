@@ -88,8 +88,11 @@ about three lines fit at the default cell size — smaller cells buy more.
 | **Screen** | Dots · Edges | How a loaded image, clip or camera is drawn. **Dots** maps tone to dot radius across seven levels. **Edges** runs a Sobel over the same luminance and draws the result with the four rule glyphs — `— \ | /` — picking the one lying *along* the edge, so a picture comes out as line art tracing its own contours. |
 | **Motion** | Ignore · Drives Spawns | With a live source, difference successive frames and place new groups where the change is. It couples the picture to the animation through *movement* rather than brightness, so the canvas reacts to you rather than merely displaying you. |
 
-Both only do anything once a source is loaded. Motion also needs a *moving*
-one — on a still image nothing ever changes, so nothing is ever hot.
+This whole section stays hidden until there is a source to apply it to, and
+**Motion** appears a step later still: it has nothing to difference against on a
+still image, so it waits for one that moves — a clip or the camera. Both keep
+their values while hidden, so a shared link carrying `screen=edges` takes effect
+the moment you load something.
 
 The edge threshold is adaptive, taken from each frame's own mean gradient
 rather than fixed: a dim room and a contrasty one want very different cuts, and

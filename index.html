@@ -79,6 +79,19 @@
 
     .panel h2:first-child { margin-top: 0; }
 
+    /* A run of controls that appears and disappears as one. It needs the
+       panel's own column layout, since as a single flex item its children
+       would otherwise lose the gap between them. */
+    .panel-group {
+      display: flex;
+      flex-direction: column;
+      gap: 11px;
+    }
+
+    /* Both of the above set `display`, which would beat the UA rule for
+       the hidden attribute and leave a "hidden" group on screen. */
+    [hidden] { display: none !important; }
+
     .panel hr {
       border: none;
       border-top: 1px solid currentColor;
@@ -578,26 +591,32 @@
       <button id="msgGo" class="msg-go" aria-label="Reveal text"></button>
     </div>
 
-    <hr>
-    <h2>Source</h2>
+    <!-- Nothing here means anything without a source, so the whole group
+         stays out of the way until there is one. Screen applies to any
+         source; Motion needs one that actually moves, so it appears a
+         step later than the rest. -->
+    <div class="panel-group" id="sourceGroup" hidden>
+      <hr>
+      <h2>Source</h2>
 
-    <!-- How a loaded image, clip or camera is drawn onto the grid: as a
-         dot halftone, or as edges traced with the rule glyphs. -->
-    <div class="control-group">
-      <label for="screen">Screen</label>
-      <select id="screen">
-        <option value="dots">Dots</option>
-        <option value="edges">Edges</option>
-      </select>
-    </div>
+      <!-- How a loaded image, clip or camera is drawn onto the grid: as a
+           dot halftone, or as edges traced with the rule glyphs. -->
+      <div class="control-group">
+        <label for="screen">Screen</label>
+        <select id="screen">
+          <option value="dots">Dots</option>
+          <option value="edges">Edges</option>
+        </select>
+      </div>
 
-    <!-- Whether movement in a live source decides where groups appear. -->
-    <div class="control-group">
-      <label for="motion">Motion</label>
-      <select id="motion">
-        <option value="off">Ignore</option>
-        <option value="spawn">Drives Spawns</option>
-      </select>
+      <!-- Whether movement in a live source decides where groups appear. -->
+      <div class="control-group" id="motionRow" hidden>
+        <label for="motion">Motion</label>
+        <select id="motion">
+          <option value="off">Ignore</option>
+          <option value="spawn">Drives Spawns</option>
+        </select>
+      </div>
     </div>
 
     <hr>
@@ -2752,9 +2771,17 @@
 
     let camStream = null;     // held so its tracks can be stopped again
 
+    const sourceGroup = document.getElementById('sourceGroup');
+    const motionRow = document.getElementById('motionRow');
+
     const syncImage = () => {
       imgBtn.textContent = photoSrc && !camStream ? 'Clear Source' : 'Load Media';
       camBtn.textContent = camStream ? 'Stop Camera' : 'Camera';
+      // Screen governs how any source is drawn, so it comes with the first
+      // one. Motion has nothing to difference against on a still, so it
+      // waits for a source that moves — a clip or the camera.
+      sourceGroup.hidden = !photoSrc;
+      motionRow.hidden = !photoLive;
     };
 
     // Drops every source, whichever kind, and releases the camera with it.
