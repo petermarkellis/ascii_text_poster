@@ -493,6 +493,13 @@
       <span id="driftVal" style="width: 26px; font-size: 11px; opacity: 0.6;">20%</span>
     </div>
 
+    <!-- How fast the ground rewrites itself, one region at a time. -->
+    <div class="control-group">
+      <label for="renew">Renew</label>
+      <input type="range" id="renew" min="0" max="100" value="50">
+      <span id="renewVal" style="width: 26px; font-size: 11px; opacity: 0.6;">50%</span>
+    </div>
+
     <div class="control-group">
       <label for="chroma">Chroma</label>
       <input type="range" id="chroma" min="0" max="100" value="0">
@@ -669,6 +676,8 @@
     const scaleVal = document.getElementById('scaleVal');
     const driftInput = document.getElementById('drift');
     const driftVal = document.getElementById('driftVal');
+    const renewInput = document.getElementById('renew');
+    const renewVal = document.getElementById('renewVal');
     const chromaInput = document.getElementById('chroma');
     const chromaVal = document.getElementById('chromaVal');
     const splitInput = document.getElementById('split');
@@ -696,6 +705,8 @@
     const sizeScale = () => +scaleInput.value / 100;
     // Field scroll, in px per second.
     const driftRate = () => (+driftInput.value / 100) * DRIFT_MAX;
+    // How fast the ground rewrites itself; 0 leaves it fixed.
+    const renewRate = () => +renewInput.value / 100;
     const panel = document.getElementById('panel');
 
     // Seconds a user-made cell survives; 0 means it never expires.
@@ -1644,7 +1655,7 @@
       }
     }
 
-    const blank = () => ({ bg: null, fill: null, char: '', fg: null });
+    const blank = () => ({ bg: null, fill: null, char: '', fg: null, bar: false });
     const at = (x, y) => base[y * cols + x];
     const inside = (x, y) => x >= 0 && y >= 0 && x < cols && y < rows;
 
@@ -1692,10 +1703,14 @@
     }
 
     function buildFields() {
+      fieldRegions = [];
+      // A screened source owns the whole canvas, so there is nothing to
+      // renew under it.
       if (photo) return buildPhotoField();
 
       const regions = [];
       splitRegions(0, 0, cols, rows, 5, regions);
+      fieldRegions = regions;
 
       regions.forEach((r) => {
         const t = (r.x + r.w / 2) / cols;
@@ -1703,11 +1718,103 @@
         const solid = chance(0.28);
         const size = irand(4, 9);
         const fill = solid ? null : dotFill(s.dot, size, Math.max(0.9, size * 0.2));
+        r.bg = s.bg;   // what a renewal has to differ from
         paintRect(r.x, r.y, r.w, r.h, (c) => {
           c.bg = s.bg;
           c.fill = fill;
         });
       });
+    }
+
+    /* ---------------------------------------------------------------
+       Renewal. The fields are the still layer, which meant that once a
+       seed was laid the largest areas of the canvas were fixed for good —
+       drift moves their pattern, but the composition underneath never
+       changed. So one region at a time re-rolls its scheme and dissolves
+       into it, using the same coherent noise the entities rot with: it
+       arrives in patches rather than as a rectangle switching over.
+
+       Bars and anything hand-painted are left alone. A renewal is meant
+       to renew the ground, not to erase what was put on top of it.
+    --------------------------------------------------------------- */
+    const RENEW_GAP = 1.2;    // seconds between renewals at full rate
+    const RENEW_TIME = 2.2;   // seconds one region takes to change over
+
+    let fieldRegions = [];
+    let renew = null;         // the region currently changing, or null
+    let renewWait = 0;        // seconds until the next one starts
+    let renewRng = 0;         // a stream of its own, see below
+
+    /* Renewal draws on the same helpers the composition does — fieldScheme,
+       pick, irand — but it must not draw on the same *stream*. Sharing it
+       would mean the Renew slider decided which entities spawned, and that
+       every seed rendered differently than it did before renewal existed.
+       So the generator is swapped out for the duration and put back after:
+       one deterministic sequence for the poster, another for its upkeep. */
+    function onRenewStream(fn) {
+      const keep = rngState;
+      rngState = renewRng;
+      try { return fn(); } finally { renewRng = rngState; rngState = keep; }
+    }
+
+    function startRenew() {
+      if (!fieldRegions.length) return;
+      onRenewStream(() => {
+        const r = pick(fieldRegions);
+        // The schemes come from a short list, so a re-roll can easily land
+        // on the ground already there — which spends a cycle showing
+        // nothing. Ask again a few times before settling for it.
+        let scheme = fieldScheme((r.x + r.w / 2) / cols);
+        for (let k = 0; k < 4 && scheme.bg === r.bg; k++) {
+          scheme = fieldScheme((r.x + r.w / 2) / cols);
+        }
+        const size = irand(4, 9);
+        r.bg = scheme.bg;
+        renew = {
+          r,
+          bg: scheme.bg,
+          fill: chance(0.28) ? null
+              : dotFill(scheme.dot, size, Math.max(0.9, size * 0.2)),
+          seed: irand(0, 9999),
+          t: 0
+        };
+      });
+    }
+
+    function stepRenew(dt) {
+      const rate = renewRate();
+      if (!rate) return false;
+
+      if (!renew) {
+        renewWait -= dt * rate;
+        if (renewWait > 0) return false;
+        startRenew();
+        if (!renew) return false;
+      }
+
+      renew.t += (dt * rate) / RENEW_TIME;
+      const { r, seed } = renew;
+
+      for (let y = r.y; y < r.y + r.h; y++) {
+        for (let x = r.x; x < r.x + r.w; x++) {
+          if (!inside(x, y)) continue;
+          const i = y * cols + x;
+          const c = base[i];
+          if (c.bar || painted.has(i)) continue;
+          // Each cell has its own moment, coherent with its neighbours, so
+          // the new scheme seeps across the region instead of wiping it.
+          if (fbm(x * 0.3, y * 0.3, seed) > renew.t) continue;
+          c.bg = renew.bg;
+          c.fill = renew.fill;
+        }
+      }
+
+      // fbm tops out below 1, so this is past the last cell's turn.
+      if (renew.t >= 1.05) {
+        renew = null;
+        renewWait = onRenewStream(() => rand(RENEW_GAP * 0.6, RENEW_GAP * 1.5));
+      }
+      return true;
     }
 
     /* --- Base layer: static bars --------------------------------- */
@@ -1755,6 +1862,7 @@
           c.fill = s.fill;
           c.char = '';
           c.fg = s.fg;
+          c.bar = true;   // a renewal must not erase it
         });
 
         // Halftone bars stay bare, so don't bother seeding them.
@@ -2461,6 +2569,11 @@
       entities = [];
       painted.clear();      // indices refer to the old grid
       stroke = [];          // likewise
+      renew = null;         // its region belongs to the old layout
+      renewWait = RENEW_GAP * 0.5;
+      // Derived from the seed, so upkeep is reproducible too, but kept
+      // clear of the stream that lays out the poster.
+      renewRng = (seed ^ 0x9e3779b9) | 0;
       chromaCache.clear();  // keys are column indices, and cols just changed
 
       viewBg = new Array(n).fill(undefined);
@@ -2538,6 +2651,7 @@
     const URL_FIELDS = {
       palette: paletteInput, size: cellSizeInput, speed: speedInput,
       density: densityInput, scale: scaleInput, drift: driftInput,
+      renew: renewInput,
       chroma: chromaInput,
       split: splitInput, decay: decayInput, trail: trailInput,
       wipe: wipeInput, msgsplit: msgSplitInput, glow: glowInput,
@@ -2664,6 +2778,12 @@
     driftInput.addEventListener('input', syncDrift);
     syncDrift();
 
+    const syncRenew = () => {
+      renewVal.textContent = renewInput.value === '0' ? 'off' : renewInput.value + '%';
+    };
+    renewInput.addEventListener('input', syncRenew);
+    syncRenew();
+
     const syncChroma = () => {
       chromaVal.textContent = chromaInput.value === '0' ? 'off' : chromaInput.value + '%';
       // Entries are keyed by colour and column only, so a new amount
@@ -2716,6 +2836,7 @@
       if (presetInput.syncUi) presetInput.syncUi();
       sizeVal.textContent = cellSizeInput.value;
       syncDrift();
+      syncRenew();
       syncDecay();
       syncDensity();
       syncScale();
@@ -2776,6 +2897,7 @@
       for (const [k, v] of Object.entries(p)) URL_FIELDS[k].value = v;
       sizeVal.textContent = cellSizeInput.value;
       syncDrift();
+      syncRenew();
       syncDecay();
       syncDensity();
       syncScale();
@@ -3063,6 +3185,7 @@
           accumulator -= STEP;
           entities = entities.filter((e) => updateEntity(e, STEP));
           topUpEntities();
+          stepRenew(STEP);
           stepped = true;
         }
 

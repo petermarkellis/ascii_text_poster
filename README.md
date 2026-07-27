@@ -49,6 +49,7 @@ clears with the same diagonal sweep everything else uses.
 | **Speed** | 0–200 | Scales the artwork clock. Transitions ignore it — they're UI, not motion. |
 | **Density** | 0–20 | How many drifting groups stay alive. Lowering it lets the surplus die off naturally rather than culling mid-life. |
 | **Scale** | 0.5×–2.6× | How large those groups are built. |
+| **Renew** | 0–100% | How fast the ground rewrites itself. One field region at a time re-rolls its scheme and dissolves into it through coherent noise, so it arrives in patches rather than as a rectangle switching over. Bars and anything hand-painted are left alone — a renewal renews the ground, not what was put on it. About 70% of the ground differs after a minute at the default. |
 | **Drift** | 0–100% | Scrolls the halftone patterns. The fields belong to the still layer, so this is the only motion available to them — the cells keep their colours and their edges, only the dots travel. A screened photo is exempt: drifting its dots would slide the tone off the thing it describes. |
 | **Chroma** | 0–100% | Position-dependent red/blue drift: left of centre gains red, right gains blue. |
 | **Split** | 0–4 cells | True chromatic aberration — a cell takes its red from the left and its blue from the right, keeping its own green. Only edges fringe. |
@@ -137,7 +138,7 @@ bar — swap the message, bump the seed, change the palette — and the canvas
 follows. A parameter you delete resets its control rather than lingering.
 
 Parameters: `seed`, `palette`, `size`, `speed`, `density`, `scale`, `chroma`,
-`drift`, `split`, `decay`, `trail`, `wipe`, `msgsplit`, `glow`, `screen`, `motion`,
+`drift`, `renew`, `split`, `decay`, `trail`, `wipe`, `msgsplit`, `glow`, `screen`, `motion`,
 `fmt`, `msg`.
 
 An image, a clip or the camera is the one thing that can't ride along — a source
@@ -169,6 +170,13 @@ cell, so switching it costs a single mutation rather than thousands. It draws in
 `currentColor`, which is what lets one rule serve every palette — a glyph blooms
 in whatever ink it already had — and only cells actually holding a glyph pay for
 it.
+
+**Renewal runs on a stream of its own.** It draws on the same helpers the
+composition does — `fieldScheme`, `pick`, `irand` — but swapping the generator
+out for the duration and putting it back keeps it off the same *sequence*.
+Sharing one would mean the Renew slider decided which entities spawned, and that
+every seed rendered differently than it did before renewal existed. Two
+deterministic sequences: one for the poster, one for its upkeep.
 
 **The fields scroll from one property.** Each patterned cell already carries a
 `background-position` offset, which is what makes neighbouring cells tile as one
