@@ -3,7 +3,52 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Halftone ASCII Canvas</title>
+
+  <title>Halftone ASCII Canvas — generative text-grid posters</title>
+  <meta name="description" content="A generative poster canvas built from a grid of text cells: halftone dot fields, drifting glyphs, letterforms that assemble and rot, typed messages, and a photo or webcam screened onto the grid.">
+  <meta name="author" content="Peter Ellis">
+  <meta name="theme-color" content="#0f0e17">
+  <link rel="canonical" href="https://petermarkellis.github.io/ascii_text_poster/">
+  <link rel="me" href="https://x.com/pellisdesign">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230f0e17'/%3E%3Cg fill='%2314e0c4'%3E%3Ccircle cx='6' cy='6' r='2'/%3E%3Ccircle cx='16' cy='6' r='2.6'/%3E%3Ccircle cx='26' cy='6' r='3.2'/%3E%3Ccircle cx='6' cy='16' r='2.6'/%3E%3Ccircle cx='16' cy='16' r='3.2'/%3E%3Ccircle cx='26' cy='16' r='3.8'/%3E%3Ccircle cx='6' cy='26' r='3.2'/%3E%3Ccircle cx='16' cy='26' r='3.8'/%3E%3Ccircle cx='26' cy='26' r='4.4'/%3E%3C/g%3E%3C/svg%3E">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Halftone ASCII Canvas">
+  <meta property="og:title" content="Halftone ASCII Canvas — generative text-grid posters">
+  <meta property="og:description" content="A generative poster canvas built from a grid of text cells: halftone dot fields, drifting glyphs, letterforms that assemble and rot, typed messages, and a photo or webcam screened onto the grid.">
+  <meta property="og:url" content="https://petermarkellis.github.io/ascii_text_poster/">
+  <meta property="og:image" content="https://petermarkellis.github.io/ascii_text_poster/OG_Social.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="The canvas rendering WELL HELLO THERE! in large letters over a green halftone grid.">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@pellisdesign">
+  <meta name="twitter:creator" content="@pellisdesign">
+  <meta name="twitter:title" content="Halftone ASCII Canvas — generative text-grid posters">
+  <meta name="twitter:description" content="A generative poster canvas built from a grid of text cells: halftone dot fields, drifting glyphs, letterforms that assemble and rot, typed messages, and a photo or webcam screened onto the grid.">
+  <meta name="twitter:image" content="https://petermarkellis.github.io/ascii_text_poster/OG_Social.jpg">
+  <meta name="twitter:image:alt" content="The canvas rendering WELL HELLO THERE! in large letters over a green halftone grid.">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Halftone ASCII Canvas",
+    "applicationCategory": "DesignApplication",
+    "operatingSystem": "Any browser",
+    "url": "https://petermarkellis.github.io/ascii_text_poster/",
+    "image": "https://petermarkellis.github.io/ascii_text_poster/OG_Social.jpg",
+    "description": "A generative poster canvas built from a grid of text cells: halftone dot fields, drifting glyphs, letterforms that assemble and rot, typed messages, and a photo or webcam screened onto the grid.",
+    "author": {
+      "@type": "Person",
+      "name": "Peter Ellis",
+      "url": "https://x.com/pellisdesign",
+      "sameAs": ["https://x.com/pellisdesign"]
+    }
+  }
+  </script>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
@@ -135,6 +180,73 @@
       flex: 1;
       min-width: 0;
     }
+
+    /* ---- Control tips ----------------------------------------------
+       A marker per control, and one floating box they all share.
+
+       The box hangs off the body rather than sitting in the panel,
+       because the panel scrolls: `overflow-y: auto` makes the other axis
+       clip too, so a tip rendered inside would be cut off at the panel
+       edge or would widen the scroll area. Fixed positioning sidesteps
+       both, and lets a tip be wider than the panel that raised it.
+
+       A real button rather than a hover target on the label, so it can
+       be reached by keyboard and tapped on a touch screen — neither of
+       which has a hover state to rely on. */
+    .tip {
+      flex: 0 0 auto;
+      width: 15px;
+      height: 15px;
+      padding: 0;
+      border: 1px solid currentColor;
+      border-radius: 0;
+      background: transparent;
+      color: inherit;
+      font-family: inherit;
+      font-size: 9px;
+      line-height: 1;
+      cursor: help;
+      opacity: 0.35;
+      transition: opacity 0.15s ease;
+    }
+
+    /* Quiet until wanted: twenty markers at full strength would read as
+       part of the composition rather than as an aside to it. */
+    .tip:hover,
+    .tip:focus-visible,
+    .tip.on { opacity: 1; }
+
+    #tipBox {
+      position: fixed;
+      z-index: 1002;
+      display: none;
+      max-width: 250px;
+      padding: 8px 10px;
+      font-family: 'DotGothic16', ui-monospace, Menlo, monospace;
+      font-size: 11px;
+      line-height: 1.55;
+      background: var(--panel-bg, #fff);
+      color: var(--panel-fg, #1c1c21);
+      border: 2px solid currentColor;
+      box-shadow: 3px 3px 0 currentColor;
+      /* Never a drag target. The canvas underneath is painted on, and a
+         box that swallowed the pointer would break a stroke crossing it. */
+      pointer-events: none;
+    }
+
+    #tipBox.on { display: block; }
+
+    /* A byline rather than a control, so it stays out of the way of the
+       column of them above it — but it is a real link, so it keeps the
+       underline that says so. */
+    .credit {
+      font-size: 11px;
+      opacity: 0.5;
+      padding-bottom: 4px;
+    }
+
+    .credit a { color: inherit; }
+    .credit:hover { opacity: 0.9; }
 
     input[type="color"] {
       border: none;
@@ -572,6 +684,7 @@
         <option value="svg:90">Arrow Right</option>
         <option value="svg:180">Arrow Down</option>
         <option value="svg:270">Arrow Left</option>
+        <option value="svg:ghost">Ghost</option>
       </select>
     </div>
 
@@ -614,7 +727,7 @@
       <label for="msgFormat">Format</label>
       <select id="msgFormat">
         <option value="small">Inline</option>
-        <option value="large">Large</option>
+        <option value="large" selected>Large</option>
       </select>
     </div>
 
@@ -629,7 +742,8 @@
     <div class="control-group">
       <!-- Longer than one line's worth on purpose: it wraps, and `//`
            breaks it wherever you want. -->
-      <input type="text" id="msgText" maxlength="80" placeholder="Type… // breaks">
+      <input type="text" id="msgText" maxlength="80" placeholder="Type… // breaks"
+             value="WELL HEY THERE">
       <button id="msgGo" class="msg-go" aria-label="Reveal text"></button>
     </div>
 
@@ -672,6 +786,14 @@
     <input type="file" id="imgFile" accept="image/*,video/*" class="sr-only">
     <button id="camBtn">Camera</button>
     <button id="share">Share Link</button>
+
+    <!-- The readable half of the credit; `rel=me` in the head is the half
+         a machine reads. Last in the column and quiet with it: a byline
+         is not a control, and shouldn't sit in the tab order ahead of
+         one. -->
+    <p class="credit">
+      By <a href="https://x.com/pellisdesign" target="_blank" rel="me noopener">@pellisdesign</a>
+    </p>
   </div>
 
   <button class="panel-toggle" id="panelToggle" aria-label="Collapse controls">◀</button>
@@ -973,6 +1095,10 @@
 
     function applyPalette(name) {
       const p = PALETTES[name] || PALETTES.pop;
+      // The texture cache is keyed by ink, and the outgoing palette's
+      // inks are now unreachable — drop them rather than carrying every
+      // scheme ever loaded.
+      textureCache.clear();
       C = p.colors;
       INK_ON_DARK = p.inkOnDark;
       INK_ON_LIGHT = p.inkOnLight;
@@ -1003,10 +1129,22 @@
     // than as cells being half-missing. Only the ink fades: the cell
     // background stays solid, so silhouettes keep their hard edge.
     const INK_FADE = ['', 'c4', '8a'];   // 100%, ~77%, ~54%
-    // Weighted so '@' dominates, like the reference blocks.
-    const GLYPHS = ['@', '@', '@', '@', '%', '%', '%', '/'];
+    const GHOST = 'svg:ghost';
+    /* Weighted so '@' dominates, like the reference blocks. The original
+       4:3:1 is kept exactly — 16:12:4 — with one ghost in thirty-three
+       alongside it. Rare on purpose: a ghost reads as a face, and a face
+       repeated across a block stops being a mark and becomes wallpaper,
+       so it is weighted to turn up as a find rather than as a texture.
+       Lengthening the list costs the same single draw, so this changes
+       what a seed looks like without changing what it lays out. */
+    const GLYPHS = [
+      ...Array(16).fill('@'), ...Array(12).fill('%'), ...Array(4).fill('/'),
+      GHOST
+    ];
     const SLASHES = ['/', '/', '/', '\\'];
-    const MARKS = ['▲', '■', '▲', '↗', '↑'];
+    // The decorative set a bar seeds itself from. A ghost belongs here on
+    // its own terms rather than by weight — this list is already marks.
+    const MARKS = ['▲', '■', '▲', '↗', '↑', GHOST];
     // Step sequences. A group holding one of these just walks it in a
     // loop, one frame per step — the "clock" is only the fact that these
     // four glyphs happen to read as a hand going round.
@@ -1029,6 +1167,29 @@
             `stroke-linecap="round" stroke-linejoin="round"/>` +
         `</svg>`);
     }
+
+    /* The ghost, on the same contract as the arrow frames: no width or
+       height, so the cell's CSS sizes it, and stroked in currentColor so
+       it takes whatever ink the cell already had — which is what lets one
+       markup string serve every palette. Tabler's bounding-box path is
+       dropped; it draws nothing, and every cell holding a ghost would
+       carry the extra node for it. */
+    const GHOST_SVG =
+      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ` +
+        `stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
+        `<path d="M5 11a7 7 0 0 1 14 0v7a1.78 1.78 0 0 1 -3.1 1.4a1.65 1.65 0 0 0 -2.6 0` +
+          `a1.65 1.65 0 0 1 -2.6 0a1.65 1.65 0 0 0 -2.6 0a1.78 1.78 0 0 1 -3.1 -1.4v-7"/>` +
+        `<path d="M10 10h.01"/>` +
+        `<path d="M14 10h.01"/>` +
+      `</svg>`;
+
+    /* Every token that is drawn rather than typed. The arrows can be spun
+       in place, because each is one path rotated about an origin; the
+       ghost has three paths and no angle, so it is only ever written
+       whole. Keeping the angle map as the "can this be spun?" test rather
+       than as the "is this drawn?" test is what lets the two coexist. */
+    const DRAWN = new Map(ARROW_SVG);
+    DRAWN.set(GHOST, GHOST_SVG);
 
     /* Regenerate plays as a transition rather than a cut: a diagonal
        front crosses the grid from the top left, each cell it reaches
@@ -1331,6 +1492,22 @@
     // House rule: a halftone cell is a texture, never a character slot.
     const suppressesChar = (fill) => !!fill && fill.kind === 'dots';
 
+    /* Both fills, memoised for the callers that ask for one — the
+       drifting groups. A group is spawned every couple of seconds for the
+       life of a canvas, and serialising a fresh data-URI for each one
+       would rebuild the same handful of textures over and over. */
+    const textureCache = new Map();
+
+    function texture(kind, color, size, weight) {
+      const key = kind + '|' + color + '|' + size + '|' + weight;
+      const hit = textureCache.get(key);
+      if (hit) return hit;
+      const f = kind === 'hatch' ? hatchFill(color, size, weight)
+                                 : dotFill(color, size, weight);
+      textureCache.set(key, f);
+      return f;
+    }
+
     /* ---------------------------------------------------------------
        Chromatic drift. Rather than a fourth palette — the PALETTES
        entries are fixed swatch lists, and a position-dependent one
@@ -1449,11 +1626,14 @@
     let base = [], entities = [], els = [];
 
     // What is currently on screen, held as parallel arrays so the frame
-    // diff never allocates. viewSvg tracks which cells already hold drawn
-    // markup, so a spinning arrow can be re-angled instead of re-parsed.
+    // diff never allocates. viewSvg holds which drawn token each cell is
+    // showing, so a spinning arrow can be re-angled instead of re-parsed.
     let viewBg = [], viewFill = [], viewChar = [], viewFg = [], viewSvg = [];
     // Per-frame composite of the entity layer.
-    let coverBg = [], coverChar = [], coverFg = [], coverOn = null;
+    let coverBg = [], coverChar = [], coverFg = [], coverFill = [], coverOn = null;
+
+    // How many drifting groups arrive as a screen rather than as glyphs.
+    const ENTITY_TEXTURE = 0.28;
     // Resolved cell state between composite's two passes. The channel
     // split reads sideways, so nothing can be flushed until every cell
     // has been worked out. postUi marks the UI surfaces — 1 for the panel,
@@ -2063,6 +2243,7 @@
 
       const e = {
         x, y, w, h, vx, vy, seq, set, bg, shape, mask, letter,
+        fill: null,               // a texture, for the minority that take one
         seed: irand(0, 9999),
         age: 0,
         life: bar ? rand(7, 15) : shape ? rand(11, 21) : rand(9, 20),
@@ -2080,6 +2261,34 @@
         // Ragged staircase left edge, carried along with the group.
         indent: new Array(h)
       };
+
+      /* A minority of groups arrive as texture rather than as glyphs,
+         drawing on the same two fills the ground and the bars already
+         use — so the drifting layer shares the poster's vocabulary
+         instead of being glyphs and nothing else.
+
+         Shapes and letters are left out on purpose. Both are read by
+         their silhouette assembling and rotting out of churning glyphs,
+         and screening one over is how you lose the thing that makes it
+         legible as a letter at all.
+
+         The roll comes off the seed the group has already drawn rather
+         than from a fresh call: a new draw here would shift the stream
+         for every entity spawned after it, so every existing seed would
+         play a different set. Two salts give two independent decisions
+         out of the one number. */
+      if (!shape && hash2(e.seed, 1, 4211) < ENTITY_TEXTURE) {
+        const ink = isDark(bg) ? C.light : C.dark;
+        // A bar takes the hatch its static counterparts take. A block goes
+        // either way — and a dotted one drops its glyphs by the same house
+        // rule the fields obey, so it drifts as a block of pure tone.
+        if (bar || hash2(e.seed, 2, 4211) < 0.45) {
+          e.fill = texture('hatch', ink, 6 + (e.seed % 5), 3);
+        } else {
+          const size = 4 + (e.seed % 4);
+          e.fill = texture('dots', ink, size, size * 0.22);
+        }
+      }
 
       let ind = 0;
       for (let r = 0; r < h; r++) {
@@ -2185,10 +2394,12 @@
             const bg = overprint(coverBg[i], e.bg);
             coverBg[i] = bg;
             coverFg[i] = (isDark(bg) ? C.light : C.dark) + INK_FADE[level];
+            coverFill[i] = null;   // see stampEntity
           } else {
             coverOn[i] = 1;
             coverBg[i] = e.bg;
             coverFg[i] = e.inks[li] + INK_FADE[level];
+            coverFill[i] = e.fill;
           }
           coverChar[i] = e.seq ? seqChar(e, lx, ly) : e.chars[li];
         }
@@ -2217,10 +2428,17 @@
             const bg = overprint(coverBg[i], e.bg);
             coverBg[i] = bg;
             coverFg[i] = isDark(bg) ? C.light : C.dark;
+            // A texture was coloured against its own group's ground, and
+            // the overprint has just replaced that ground underneath it.
+            // Clearing it lets a crossing read as the flat third colour it
+            // already is, rather than carrying a screen in an ink picked
+            // for a ground that is no longer there.
+            coverFill[i] = null;
           } else {
             coverOn[i] = 1;
             coverBg[i] = e.bg;
             coverFg[i] = e.inks[li];
+            coverFill[i] = e.fill;
           }
           coverChar[i] = e.seq ? seqChar(e, lx, ly) : e.chars[li];
         }
@@ -2393,7 +2611,14 @@
         const b = base[src];
         const on = coverOn[i];
         let bg = on ? coverBg[i] : (b.bg || C.paper);
-        let fill = on ? null : b.fill;
+        // A group carries its own screen when it has one. The offset is
+        // anchored to the screen grid rather than to the group, which is
+        // what keeps neighbouring cells tiling as one field and lets the
+        // drift move all of them from a single write — so a group that
+        // travels reads as a window opening onto a fixed screen. Locking
+        // the texture to the group instead would cost a write per filled
+        // cell per frame, which is the thing that design avoids.
+        let fill = on ? coverFill[i] : b.fill;
         let fg = on ? coverFg[i] : (b.fg || C.dark);
         let char = suppressesChar(fill) ? '' : (on ? coverChar[i] : b.char);
         let ui = 0;   // set by the message and panel layers below
@@ -2594,20 +2819,27 @@
     }
 
     // A sequence frame is either typed or drawn. When a cell is already
-    // holding the arrow, spin it by rewriting one attribute — reparsing
-    // the markup on every step would be the expensive way to rotate.
+    // holding an arrow and is being handed another, spin it by rewriting
+    // one attribute — reparsing the markup on every step would be the
+    // expensive way to rotate. viewSvg holds which drawn token is in the
+    // cell rather than merely that one is, because the shortcut is only
+    // valid arrow-to-arrow: a ghost has no angle to spin, and its first
+    // path is not the arrow's.
     function setContent(i, token) {
-      const angle = ARROW_ANGLE.get(token);
-      if (angle === undefined) {
+      const markup = DRAWN.get(token);
+      if (markup === undefined) {
         els[i].textContent = token; // also clears any svg that was there
-        viewSvg[i] = false;
-      } else if (viewSvg[i] && els[i].firstElementChild) {
+        viewSvg[i] = '';
+        return;
+      }
+      const angle = ARROW_ANGLE.get(token);
+      if (angle !== undefined && ARROW_ANGLE.has(viewSvg[i]) && els[i].firstElementChild) {
         els[i].firstElementChild.firstElementChild
           .setAttribute('transform', `rotate(${angle})`);
       } else {
-        els[i].innerHTML = ARROW_SVG.get(token);
-        viewSvg[i] = true;
+        els[i].innerHTML = markup;
       }
+      viewSvg[i] = token;
     }
 
     // What the current cell elements were built for, so a rebuild that
@@ -2657,9 +2889,12 @@
 
       // Snap the panel to whole columns and match the DOM to them exactly,
       // so the controls line up with the cell block that backs them.
-      // One column past what the width alone asks for, so the controls
-      // have a margin of block to sit on rather than meeting the edge.
-      panelCols = Math.max(1, Math.min(cols - 2, Math.round(PANEL_PX / cellW) + 1));
+      // Four columns past what the width alone asks for: one so the
+      // controls have a margin of block to sit on rather than meeting the
+      // edge, and three of room — the sliders share their row with a
+      // label, a readout and a tip marker, and were the first thing to
+      // give when the panel was tight.
+      panelCols = Math.max(1, Math.min(cols - 2, Math.round(PANEL_PX / cellW) + 4));
       syncPanelGeometry();
 
       // Scaled off the cell, not fixed: 6px is a halo on a 16px cell and
@@ -2685,10 +2920,11 @@
       viewFill = new Array(n).fill(undefined);
       viewChar = new Array(n).fill(undefined);
       viewFg = new Array(n).fill(undefined);
-      viewSvg = new Array(n).fill(false);
+      viewSvg = new Array(n).fill('');
       coverBg = new Array(n);
       coverChar = new Array(n);
       coverFg = new Array(n);
+      coverFill = new Array(n);
       coverOn = new Uint8Array(n);
       postBg = new Array(n);
       postFill = new Array(n);
@@ -3512,6 +3748,132 @@
     enhanceSelect(screenInput);
     enhanceSelect(motionInput);
     enhanceSelect(msgFormat);
+
+    /* ---------------------------------------------------------------
+       Control tips. One line of copy per control, kept together here
+       rather than spread across twenty attributes in the markup, so the
+       whole set can be read and edited as a block — and so a control
+       without an entry simply gets no marker.
+
+       Keyed by element id: the marker is appended to whichever
+       `.control-group` holds that element, which is also how it inherits
+       the row it explains without the markup having to name it twice.
+    --------------------------------------------------------------- */
+    const TIPS = {
+      preset: 'Sets the seven sliders below at once. Drops back to Custom the moment you move any of them.',
+      palette: 'Seven schemes — four dark, three light. Ink is picked against each cell’s own ground rather than paired up in advance, so every scheme stays legible.',
+      glow: 'Blooms each glyph in its own ink. Auto follows the palette, and only the two neon schemes ask for it — on the grey schemes the same treatment reads as a printing fault.',
+      cellSize: 'Target size of one cell, in pixels. Reshapes the whole grid.',
+      speed: 'Scales the artwork clock. Transitions ignore it — they are UI, not motion.',
+      density: 'How many drifting groups stay alive at once. Lowering it lets the surplus die off naturally rather than culling them mid-life.',
+      scale: 'How large those drifting groups are built, from half size up to 2.6×. It changes their size, not how many there are.',
+      scroll: 'Marches the whole still layer sideways, up to 9 cells a second, wrapping round. Entities and the message stay put, so the ground reads as travelling underneath them.',
+      drift: 'Scrolls the halftone dots without moving the cells holding them. A screened photo is exempt: drifting its dots would slide the tone off the thing it describes.',
+      ground: 'How much of the still layer is there at all. At 0 it dissolves away in patches and leaves the canvas bare — entities keep drifting over it, and anything you painted stays.',
+      renew: 'How fast the ground rewrites itself. One region at a time re-rolls its colours and seeps into them. Bars and hand-painted cells are left alone.',
+      chroma: 'Position-dependent colour drift: left of centre gains red, right of centre gains blue.',
+      split: 'True chromatic aberration — a cell takes its red from the left and its blue from the right, keeping its own green. Only edges fringe.',
+      msgSplit: 'Whether Split reaches the typed message. Ignoring it also stops neighbouring cells sampling the text, so it cannot bleed a halo either.',
+      wipe: 'The shape of the front that the Regenerate transition travels along.',
+      bgColor: 'The ground a brush stroke paints. Reset with the palette to a pair that reads against it, so a painted cell is visible the moment you draw it.',
+      textColor: 'The ink a brush stroke paints its glyph in.',
+      brush: 'Character paints the glyph below. The arrows and the ghost are drawn SVG rather than type, so they stroke in the cell’s own ink.',
+      cellChar: 'The character the brush paints. Disabled while a drawn brush is selected, since it would have nothing to do.',
+      fillMode: 'Paint a flat cell or a halftone texture. A dotted cell is a texture, never a character slot — dots suppress the glyph.',
+      decay: 'How long a brush stroke survives before handing its cells back. At 0 it stays indefinitely. Strokes only: the message keeps its own clock.',
+      trail: 'A drag longer than ten cells cools behind the cursor. Auto sinks the tail toward the palette’s own ground, so it recedes on light and dark alike.',
+      msgFormat: 'Inline puts one letter per cell. Large builds each letter from a 5×7 block of cells, which churn and then fall away, so the word is revealed by subtraction.',
+      msgLoop: 'How long a finished message holds before it frays away and plays again. Off leaves it up for good.',
+      msgText: 'Type and press the arrow. Text too wide for the grid wraps, and // breaks a line wherever you want one.',
+      screen: 'How a loaded image, clip or camera is drawn. Dots maps tone to dot radius across seven levels; Edges traces the contours with the four rule glyphs.',
+      motion: 'With a live source, difference each frame against the last and spawn new groups where the change is — so the canvas reacts to you moving rather than to how bright you are.'
+    };
+
+    const tipBox = document.createElement('div');
+    tipBox.id = 'tipBox';
+    tipBox.setAttribute('role', 'tooltip');
+    document.body.appendChild(tipBox);
+
+    let tipOpen = null;   // the marker currently showing, or null
+
+    function hideTip() {
+      if (!tipOpen) return;
+      tipOpen.classList.remove('on');
+      tipOpen.setAttribute('aria-expanded', 'false');
+      tipBox.classList.remove('on');
+      tipOpen = null;
+    }
+
+    function showTip(btn) {
+      if (tipOpen === btn) return;
+      hideTip();
+      tipOpen = btn;
+      tipBox.textContent = btn.dataset.tip;
+      tipBox.classList.add('on');
+      btn.classList.add('on');
+      btn.setAttribute('aria-expanded', 'true');
+
+      // Measured after the text is in and the box is displayed, or the
+      // rect would be the previous tip's size — and a long line would
+      // hang off the screen for exactly one frame.
+      const m = btn.getBoundingClientRect();
+      const box = tipBox.getBoundingClientRect();
+      const pad = 8;
+      // Clear of the panel rather than merely clear of the marker: the
+      // markers sit inside the panel's padding, so anchoring to one would
+      // lay the box over the controls it is describing. Off the panel
+      // edge also lines every tip up on the same margin. It falls back to
+      // the marker's other side only when the window is too narrow to
+      // take the box at all.
+      let x = panel.getBoundingClientRect().right + pad;
+      if (x + box.width > innerWidth - pad) x = Math.max(pad, m.left - pad - box.width);
+      // Centred on the marker, then pulled back inside the viewport, so a
+      // tip on the last control is not half below the fold.
+      let y = m.top + m.height / 2 - box.height / 2;
+      y = Math.max(pad, Math.min(y, innerHeight - box.height - pad));
+      tipBox.style.left = Math.round(x) + 'px';
+      tipBox.style.top = Math.round(y) + 'px';
+    }
+
+    for (const [id, text] of Object.entries(TIPS)) {
+      const group = document.getElementById(id)?.closest('.control-group');
+      if (!group) continue;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'tip';
+      btn.textContent = '?';
+      btn.dataset.tip = text;
+      btn.setAttribute('aria-expanded', 'false');
+      // The row's own label already names the control, so the marker only
+      // has to say what it opens — otherwise a screen reader announces
+      // "Density, question mark" and leaves the reader none the wiser.
+      const name = group.querySelector('label');
+      btn.setAttribute('aria-label', name
+        ? 'What ' + name.textContent.trim() + ' does'
+        : 'What this control does');   // the message field carries no label
+
+      btn.addEventListener('pointerenter', () => showTip(btn));
+      btn.addEventListener('pointerleave', hideTip);
+      btn.addEventListener('focus', () => showTip(btn));
+      btn.addEventListener('blur', hideTip);
+      /* Touch has no hover to open a tip with, so the tap opens it and a
+         tap anywhere else closes it. Deliberately show rather than
+         toggle: a tap arrives as focus *then* click, and a toggle would
+         see its own opening focus and shut the tip again immediately. */
+      btn.addEventListener('click', () => showTip(btn));
+      group.appendChild(btn);
+    }
+
+    // Anything that moves the marker out from under its box closes it,
+    // rather than leaving the tip pointing at a control that has gone.
+    panel.addEventListener('scroll', hideTip, { passive: true });
+    addEventListener('resize', hideTip);
+    addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); });
+    // Filtered here rather than stopped at the marker, so the click still
+    // reaches the listener that closes an open dropdown behind it.
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.tip')) hideTip();
+    });
 
     // The typed glyph is meaningless while a shape brush is selected, so
     // dim it rather than leaving a control that silently does nothing.

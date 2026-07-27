@@ -9,6 +9,20 @@ file with no build step.
 Every composition has a seed, and the URL is a live description of what you are
 looking at, so anything you make can be kept or handed to someone else.
 
+**[See it running →](https://petermarkellis.github.io/ascii_text_poster/)**
+
+![A message set in large letters — each one built from a block of cells that churn and fall away — over a green halftone grid of drifting glyph blocks, dot fields and rule marks.](screenshots/screenshot_1.jpg)
+
+*The canvas with the panel collapsed. Every layer here is the same grid of text
+cells: the dot fields, the blocks of drifting glyphs, and the letterforms, which
+are revealed by subtraction as the cells around them rot away.*
+
+![The same canvas with the control panel open down the left edge, showing sliders for size, speed, density, scale, scroll, drift, ground, renew, chroma and split.](screenshots/screenshot_2.jpg)
+
+*The panel open. It isn't an overlay — it's a block of canvas cells that builds
+and clears with the same diagonal sweep as everything else, which is why the
+composition stops rather than slides underneath it.*
+
 ## Running it
 
 Open `index.html` in a browser. That's the whole install.
@@ -38,6 +52,13 @@ it onto the grid, or hit **Camera**. The panel collapses with the tab on its
 right edge — it isn't an overlay, it's a block of canvas cells that builds and
 clears with the same diagonal sweep everything else uses.
 
+Every control carries a `?` marker. Hover it, tap it, or reach it with the
+keyboard and a note explains what that control does — the same descriptions
+tabulated below, at the point of use. The note appears off the panel's right
+edge rather than inside it, so it can be wider than the panel and doesn't cover
+the control it is describing. Escape closes it, as does moving away or touching
+anything else.
+
 ### Canvas
 
 | Control | | |
@@ -63,7 +84,7 @@ clears with the same diagonal sweep everything else uses.
 | Control | | |
 |---|---|---|
 | **BG / Ink** | colour | Reset to a pair that reads *against* the current palette, so a painted cell is visible the moment you draw it. |
-| **Brush** | Character · Arrow ↑→↓← | The arrows are drawn SVG rather than glyphs, so they stroke in the cell's ink. |
+| **Brush** | Character · Arrow ↑→↓← · Ghost | The arrows and the ghost are drawn SVG rather than glyphs, so they stroke in the cell's ink. |
 | **Char** | 1 character | Disabled while a shape brush is selected. |
 | **Fill** | Solid · Dots · Hatch | A halftone cell is a texture, never a character slot — dots suppress the glyph. |
 | **Decay** | 0–5s | How long a brush stroke survives before handing its cells back. `0` keeps it indefinitely. Brush strokes only — the message keeps its own clock, below. |
@@ -79,6 +100,11 @@ over a fading drawing, or the reverse, are both possible now.
 Type and press the arrow. **Inline** puts one letter per cell; **Large** builds
 each letter from a 5×7 block of cells, which churn and then fall away so the
 word is revealed by subtraction.
+
+The canvas opens on `WELL HEY THERE` in **Large**, revealed with the animation
+rather than dropped in settled. Since defaults are omitted from the hash, that
+is what a bare `#seed=…` link now shows — clearing the field gives an explicit
+empty `msg=`, which round-trips back to a blank canvas.
 
 Text too wide for the grid wraps, and `//` breaks a line wherever you want one:
 
@@ -169,6 +195,31 @@ anything hand-painted — and never animates. `entities` are the drifting groups
 composited over it each frame. Keeping them separate is what lets a group move
 away and reveal what was underneath.
 
+**Groups can arrive as texture.** About a quarter of them carry a dot screen or
+a hatch instead of glyphs, drawing on the same two fills the ground and the bars
+already use, so the drifting layer shares the poster's vocabulary rather than
+being glyphs and nothing else. A dotted group drops its glyphs by the same house
+rule the fields obey and drifts as a block of pure tone; a hatched one keeps
+them, exactly as a hatched bar does. Shapes and letters are left out on purpose —
+both are read by a silhouette assembling and rotting out of churning glyphs, and
+screening one over is how you lose what makes it legible as a letter at all.
+
+Two details fall out of the design rather than being chosen. The texture's
+offset is anchored to the screen grid, because that is what makes neighbouring
+cells tile as one field and what lets drift move all of them from a single
+write — so a group that travels reads as a window opening onto a fixed screen.
+Locking the texture to the group would cost a write per filled cell per frame,
+which is the thing that design exists to avoid. And where two groups cross, the
+texture is dropped: it was coloured against its own group's ground, which the
+overprint has just replaced, so a crossing reads as the flat third colour it
+already is rather than carrying a screen in an ink picked for a ground that is
+no longer there.
+
+The roll comes off the seed each group has already drawn rather than from a
+fresh call to the generator, for the same reason the ground's tone does: a new
+draw would shift the stream for every group spawned after it, and every existing
+seed would play a different set.
+
 **Halftones are real `<pattern>` fills**, serialised to data-URIs so each cell
 can carry its own dot colour and spacing while still tiling as one continuous
 field. A source maps luminance to dot radius across seven tone steps — which is
@@ -250,6 +301,24 @@ than a clean wipe.
 arrival, normalised 0..1. Swap it and you swap the transition — the hold, the
 ragged edge and the glyph sequence never cared which way the front was going.
 
+**A drawn glyph is just another token.** A cell's contents are a string, and a
+handful of those strings mean "draw this" instead of "type this" — the eight
+arrow frames and a ghost. Both are stroked in `currentColor` and carry no width
+or height, so one markup string serves every palette and the cell's own CSS
+sizes it. The ghost is one in thirty-three of the main glyph set: it reads as a
+face, and a face repeated across a block stops being a mark and becomes
+wallpaper, so it is weighted to turn up as a find rather than as a texture.
+Lengthening that list costs the same single draw, so it changes what a seed
+looks like without changing what it lays out.
+
+What separates the two is that an arrow can be *spun* — it is one path rotated
+about an origin, so a cell already holding one takes the next frame as a single
+attribute write rather than a reparse. A ghost has three paths and no angle, so
+it is only ever written whole. The angle map is therefore the "can this be
+spun?" test rather than the "is this drawn?" test, and the cell remembers which
+token it is showing rather than merely that it is showing one — otherwise a
+ghost handed an arrow would rotate the wrong path.
+
 **Crossings overprint.** Where two groups overlap the region takes a third
 colour: multiply on a pale ground, screen on a dark one — the same rule the
 photo screening uses, for the same reason. Ink darkens paper; light adds to
@@ -265,6 +334,51 @@ changed properties are written to the DOM, so cost tracks the cells that
 actually moved rather than the grid size. The ticker runs at a fixed 18 fps
 step — the grid is chunky, and stepping it mechanically suits the poster better
 than smooth interpolation.
+
+## Publishing
+
+The page carries its own metadata — description, Open Graph, X card, and a
+`WebApplication` block of JSON-LD whose `sameAs` ties the page to its author
+rather than treating the profile as an unrelated outbound link. One description
+serves all three: they are read by different machines but by the same person,
+and a link that describes itself one way in a tweet and another in a search
+result reads as two different pages.
+
+`og:url`, `canonical` and `og:image` are absolute, pointing at the GitHub Pages
+address below. Scrapers resolve a relative `og:image` these days but the Open
+Graph spec asks for an absolute one, and it costs nothing to give it. The card
+is `OG_Social.jpg` at 1200×630, which is why that file ships with the site
+rather than being ignored alongside the local screenshots.
+
+**Changing where the site lives means changing four strings**: `og:url`,
+`canonical`, `og:image` and `twitter:image`, plus `url` and `image` in the
+JSON-LD.
+
+The favicon is an inline SVG data-URI rather than a file, so the page stays one
+thing with nothing to build and nothing to serve beside it. It is the app's own
+halftone — teal dots ramping larger across the canvas ground, which is the idea
+the whole thing is built on. Safari before 16.4 ignores SVG favicons and shows
+none rather than a broken one; a `.png` alongside is the fix if that matters,
+at the cost of the single-file property.
+
+### Hosting
+
+The site is the repository — one HTML file, one image, no build step — so
+GitHub Pages serves it directly from `main`:
+
+**<https://petermarkellis.github.io/ascii_text_poster/>**
+
+`.nojekyll` is there to stop Pages running the tree through Jekyll on the way
+out. Nothing here is named in a way Jekyll would eat today, but the file costs
+nothing and removes a class of surprise.
+
+Serving it this way also gets the two things `file://` can't do: a secure
+context, which the **camera** requires, and a clean `history.replaceState` for
+the address bar.
+
+## Credits
+
+By [Peter Ellis](https://x.com/pellisdesign).
 
 ## Licence
 
