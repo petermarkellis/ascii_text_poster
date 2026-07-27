@@ -485,6 +485,13 @@
       <span id="scaleVal" style="width: 26px; font-size: 11px; opacity: 0.6;">1.0×</span>
     </div>
 
+    <!-- Marches the whole still layer sideways, a cell at a time. -->
+    <div class="control-group">
+      <label for="scroll">Scroll</label>
+      <input type="range" id="scroll" min="0" max="100" value="0">
+      <span id="scrollVal" style="width: 26px; font-size: 11px; opacity: 0.6;">off</span>
+    </div>
+
     <!-- The halftone fields belong to the still layer, so this is the only
          motion they can have. -->
     <div class="control-group">
@@ -690,6 +697,8 @@
 
     const scaleInput = document.getElementById('scale');
     const scaleVal = document.getElementById('scaleVal');
+    const scrollInput = document.getElementById('scroll');
+    const scrollVal = document.getElementById('scrollVal');
     const driftInput = document.getElementById('drift');
     const driftVal = document.getElementById('driftVal');
     const groundInput = document.getElementById('ground');
@@ -724,6 +733,7 @@
     const targetEntities = () => +densityInput.value;
     const sizeScale = () => +scaleInput.value / 100;
     // Field scroll, in px per second.
+    const scrollRate = () => (+scrollInput.value / 100) * SCROLL_MAX;
     const driftRate = () => (+driftInput.value / 100) * DRIFT_MAX;
     // How fast the ground rewrites itself; 0 leaves it fixed.
     const renewRate = () => +renewInput.value / 100;
@@ -1085,6 +1095,13 @@
        textured areas of the canvas never move at all. Scrolling the pattern
        offset gives them motion without disturbing the composition: the
        cells keep their colours and their edges, only the dots travel. */
+    /* Scrolling marches the still layer sideways. It is a read offset, not
+       a move: the base keeps its own coordinates, so painted cells, field
+       regions and renewals all stay where they were put and only the
+       mapping from a screen column to a base column changes. Whole cells
+       only — a half-cell shift has nowhere to land on a grid. */
+    const SCROLL_MAX = 9;     // cells per second at full slider
+
     const DRIFT_MAX = 22;     // px per second at full slider
     // Every tile size in use divides this (dots are 4-9px, hatch 6-10), so
     // the wrap lands on a tile boundary for all of them and is invisible.
@@ -1805,6 +1822,8 @@
        else so it empties in patches rather than fading uniformly. */
     const GROUND_EASE = 0.9;   // roughly three seconds to settle
     let groundLevel = 1;
+    let scrollPos = 0;         // cells travelled, fractional
+    let scrollCells = 0;       // whole cells the canvas is shifted by
     let groundNoise = null;    // per cell, fixed with the grid
 
     let fieldRegions = [];
@@ -2363,8 +2382,15 @@
       const panelDiag = Math.max(1, panelCols + rows - 2);
       const chroma = chromaAmount();
 
+      const sh = scrollCells;
+
       for (let i = 0; i < base.length; i++) {
-        const b = base[i];
+        // Which base cell this screen cell is showing. Wraps, so the
+        // composition marches round rather than running out.
+        const col = i % cols;
+        const src = sh ? i - col + (col - sh + cols) % cols : i;
+
+        const b = base[src];
         const on = coverOn[i];
         let bg = on ? coverBg[i] : (b.bg || C.paper);
         let fill = on ? null : b.fill;
@@ -2375,7 +2401,7 @@
         // Cells the ground has receded from. Entities are the live layer
         // and keep drifting over the bare canvas; a hand-painted cell is
         // yours and stays, whatever the ground does underneath it.
-        if (!on && groundLevel < 1 && groundNoise[i] > groundLevel && !painted.has(i)) {
+        if (!on && groundLevel < 1 && groundNoise[src] > groundLevel && !painted.has(src)) {
           bg = C.paper;
           fill = null;
           fg = C.dark;
@@ -2646,6 +2672,8 @@
       entities = [];
       painted.clear();      // indices refer to the old grid
       stroke = [];          // likewise
+      scrollPos = 0;        // columns refer to the old width
+      scrollCells = 0;
       renew = null;         // its region belongs to the old layout
       renewWait = RENEW_GAP * 0.5;
       // Derived from the seed, so upkeep is reproducible too, but kept
@@ -2734,7 +2762,8 @@
     --------------------------------------------------------------- */
     const URL_FIELDS = {
       palette: paletteInput, size: cellSizeInput, speed: speedInput,
-      density: densityInput, scale: scaleInput, drift: driftInput,
+      density: densityInput, scale: scaleInput,
+      scroll: scrollInput, drift: driftInput,
       ground: groundInput, renew: renewInput,
       chroma: chromaInput,
       split: splitInput, decay: decayInput, trail: trailInput,
@@ -2858,6 +2887,18 @@
     scaleInput.addEventListener('input', syncScale);
     syncScale();
 
+    const syncScroll = () => {
+      scrollVal.textContent = scrollInput.value === '0' ? 'off'
+        : (scrollRate()).toFixed(1) + 'c';
+      if (!scrollRate()) {
+        scrollPos = 0;
+        scrollCells = 0;
+        composite();
+      }
+    };
+    scrollInput.addEventListener('input', syncScroll);
+    syncScroll();
+
     const syncDrift = () => {
       driftVal.textContent = driftInput.value === '0' ? 'off' : driftInput.value + '%';
       // Nothing advances the variables once the rate is zero, so park them.
@@ -2932,6 +2973,7 @@
       presetInput.value = 'custom';
       if (presetInput.syncUi) presetInput.syncUi();
       sizeVal.textContent = cellSizeInput.value;
+      syncScroll();
       syncDrift();
       syncGround();
       syncRenew();
@@ -2995,6 +3037,7 @@
 
       for (const [k, v] of Object.entries(p)) URL_FIELDS[k].value = v;
       sizeVal.textContent = cellSizeInput.value;
+      syncScroll();
       syncDrift();
       syncGround();
       syncRenew();
@@ -3282,11 +3325,22 @@
           stepped = true;
         }
 
+        const scrollSpeed = scrollRate();
+        if (scrollSpeed) {
+          scrollPos += dt * scale * scrollSpeed;
+          const whole = Math.floor(scrollPos) % cols;
+          if (whole !== scrollCells) { scrollCells = whole; stepped = true; }
+        }
+
         // One property on the container moves every halftone field at once.
+        // The scroll goes in here too: adding a whole number of cell widths
+        // is exactly the offset that carries each pattern along with the
+        // block it belongs to, instead of leaving the dots behind on screen.
         const drift = driftRate();
-        if (drift) {
+        if (drift || scrollSpeed) {
           const d = clock * drift;
-          grid.style.setProperty('--driftX', ((d * 0.80) % DRIFT_WRAP).toFixed(1) + 'px');
+          grid.style.setProperty('--driftX',
+            (((d * 0.80) % DRIFT_WRAP) + scrollCells * cellW).toFixed(1) + 'px');
           grid.style.setProperty('--driftY', ((d * 0.45) % DRIFT_WRAP).toFixed(1) + 'px');
         }
 
@@ -3568,8 +3622,13 @@
     }
 
     function paintFromInputs(el) {
-      const i = els.indexOf(el);
-      if (i < 0) return;
+      const hit = els.indexOf(el);
+      if (hit < 0) return;
+      // The element clicked is a screen cell; the mark belongs to whichever
+      // base cell it is currently showing, so it travels with the canvas
+      // instead of staying put while the composition slides out from under.
+      const col = hit % cols;
+      const i = scrollCells ? hit - col + (col - scrollCells + cols) % cols : hit;
       const fg = textColorInput.value;
       const mode = fillModeInput.value;
 

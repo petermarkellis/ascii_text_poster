@@ -51,6 +51,7 @@ clears with the same diagonal sweep everything else uses.
 | **Scale** | 0.5×–2.6× | How large those groups are built. |
 | **Ground** | 0–100% | How much of the still layer is present at all. At `0` it dissolves away and the canvas is left bare, so turning every slider down really does empty the screen — every layer can now be absent, which was not previously true of the ground. It recedes in patches through the same coherent noise as everything else, not as a uniform fade. Entities keep drifting over the bare canvas, and anything you painted stays. |
 | **Renew** | 0–100% | How fast the ground rewrites itself. One field region at a time re-rolls its scheme and dissolves into it through coherent noise, so it arrives in patches rather than as a rectangle switching over. Bars and anything hand-painted are left alone — a renewal renews the ground, not what was put on it. About 70% of the ground differs after a minute at the default. |
+| **Scroll** | 0–100% | Marches the whole still layer sideways, up to 9 cells a second, wrapping round rather than running out. Whole cells only — a half-cell shift has nowhere to land on a grid. Entities and the message don't scroll; they're overlays, so the effect reads as the ground travelling underneath them. |
 | **Drift** | 0–100% | Scrolls the halftone patterns. The fields belong to the still layer, so this is the only motion available to them — the cells keep their colours and their edges, only the dots travel. A screened photo is exempt: drifting its dots would slide the tone off the thing it describes. |
 | **Chroma** | 0–100% | Position-dependent red/blue drift: left of centre gains red, right gains blue. |
 | **Split** | 0–4 cells | True chromatic aberration — a cell takes its red from the left and its blue from the right, keeping its own green. Only edges fringe. |
@@ -144,7 +145,7 @@ bar — swap the message, bump the seed, change the palette — and the canvas
 follows. A parameter you delete resets its control rather than lingering.
 
 Parameters: `seed`, `palette`, `size`, `speed`, `density`, `scale`, `chroma`,
-`drift`, `ground`, `renew`, `split`, `decay`, `trail`, `wipe`, `msgsplit`, `loop`, `glow`, `screen`, `motion`,
+`scroll`, `drift`, `ground`, `renew`, `split`, `decay`, `trail`, `wipe`, `msgsplit`, `loop`, `glow`, `screen`, `motion`,
 `fmt`, `msg`.
 
 An image, a clip or the camera is the one thing that can't ride along — a source
@@ -194,6 +195,15 @@ out for the duration and putting it back keeps it off the same *sequence*.
 Sharing one would mean the Renew slider decided which entities spawned, and that
 every seed rendered differently than it did before renewal existed. Two
 deterministic sequences: one for the poster, one for its upkeep.
+
+**Scrolling is a read offset, not a move.** The base keeps its own
+coordinates, so painted cells, field regions and renewals all stay exactly where
+they were put; only the mapping from a screen column to a base column changes.
+Clicks are mapped the other way, so a brush mark lands under the cursor and then
+travels with the canvas. Because the shift is a whole number of cells, adding
+`scrollCells × cellW` to the same custom property the drift uses carries each
+halftone pattern along with the block it belongs to, rather than leaving the dots
+behind on screen.
 
 **The fields scroll from one property.** Each patterned cell already carries a
 `background-position` offset, which is what makes neighbouring cells tile as one
